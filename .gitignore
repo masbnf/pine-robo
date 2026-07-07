@@ -5,4 +5,5 @@ trades.csv
 *.zip
 data/*.csv
 .venv/
+*.csv
 pine_ob_bot_data/
