@@ -127,6 +127,18 @@ volume = floor(raw_volume / volume_step) × volume_step
 
 مدل پیش‌فرض runner دو امتیاز دارد: CHoCH مخالف در لحظه fill و displacement در top quartile داده‌های گذشته. امتیاز 0/1/2 به‌ترتیب ریسک 0.75%/1%/1.25% می‌دهد، اما معامله‌ای که setup آن CHoCH است با `choch_risk_cap_fraction=0.5%` محدود می‌شود. percentile فقط از نمونه‌های **قبلی** ساخته می‌شود تا leakage رخ ندهد.
 
+### `--fixed-risk`: یک نرخ ریسک یکسان برای BOS و CHoCH
+
+`--fixed-risk` (هم در `run_pine_ob_paper.py` هم در `tools/run_tick_backtest.py`) مدل پیش‌فرض بالا و سقف CHoCH را کاملاً کنار می‌گذارد: هر شش مدل تطبیقی (`liquidity_risk_sizing_enabled` … `three_factor_risk_sizing_enabled`) خاموش و `choch_risk_cap_fraction=None` می‌شود؛ در نتیجه BOS و CHoCH هر دو دقیقاً از یک عدد، `BotConfig.risk_fraction`، استفاده می‌کنند. تنها اختلاف مجاز بین ریسک برنامه‌ریزی‌شده و ریسک واقعی، گردکردن رو به پایین `volume_step` هنگام lot sizing است (بخش بالا).
+
+پیش از این اصلاح، هر دو runner صرف‌نظر از `--fixed-risk` مقدار پیش‌فرض `choch_risk_cap_fraction=0.005` را به `BotConfig` پاس می‌دادند؛ نتیجه این بود که BOS با `risk_fraction` کامل (پیش‌فرض 1%) و CHoCH همچنان با سقف 0.5% معامله می‌شد — یعنی `--fixed-risk` نه fixed بود نه uniform. resolve و اعتبارسنجی حالا در `pine_ob_bot/cli_risk.py` متمرکز است تا هر دو runner دقیقاً یک رفتار داشته باشند، نه دو پیاده‌سازی دستی موازی:
+
+- `DEFAULT_CHOCH_RISK_CAP = 0.005`.
+- `resolve_choch_risk_cap(fixed_risk, explicit_cap)`: با `--fixed-risk` همیشه `None`؛ بدون آن، `--choch-risk-cap` صریح کاربر یا در نبود آن همان 0.5% پیش‌فرض.
+- `validate_fixed_risk_args(parser, args)`: اگر `--fixed-risk` با هر یک از شش فلگ مدل تطبیقی یا با `--choch-risk-cap` صریح ترکیب شود، پیش از شروع هر کار (حتی پیش از glob فایل‌های تیک) با `parser.error()`/`SystemExit` متوقف می‌شود — این تناقض هرگز به‌سکوت نادیده گرفته نمی‌شود.
+
+هر دو runner پارسر `--choch-risk-cap` را با `default=None` (نه 0.005) می‌سازند تا «کاربر چیزی نداده» از «کاربر صریحاً 0.005 خواسته» قابل تفکیک باشد، و بلافاصله بعد از `parser.parse_args` و پیش از `resolve_swing_settings`، `validate_fixed_risk_args(parser, args)` را صدا می‌زنند.
+
 مدل‌های آزمایشی دیگر (liquidity، CHoCH، combined، displacement و three-factor) mutually exclusive هستند و `validate()` فعال‌کردن هم‌زمان آن‌ها را رد می‌کند.
 
 برای آزمایش ریسک بدون تغییر admission، دو override تفکیک‌شده وجود دارد: مدل سه‌عاملی مختص BOS و مدل CHoCH با سه سطح toxic/sweep/other. bonus اختیاری M15-counter فقط روی BOS اعمال و ریسک نهایی آن در ۱.۲۵٪ محدود می‌شود. این overrideها برای مقایسه تحقیقاتی‌اند و runner زنده آن‌ها را به‌صورت پیش‌فرض فعال نمی‌کند.
@@ -186,14 +198,23 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 
 شماره‌ها مطابق نسخه manifest فعلی هستند.
 
-### `run_pine_ob_paper.py` (1–243)
+### `run_pine_ob_paper.py` (1–250)
 
-- 1–18: docstring معماری دوگانه Trend Swing/Entry Pivot، importهای config/app/feed/historical.
-- `build_parser`، 32–118: تعریف تمام CLIها شامل `--trend-swing-length`، `--entry-pivot-left/right` و `--swing-length` (deprecated alias).
-- `resolve_swing_settings`، 121–152: تعیین قطعی `(trend_swing_length, entry_pivot_left, entry_pivot_right)`؛ بدون فلگ → 12/5/5، فقط `--swing-length` یا فقط `--trend-swing-length` هرکدام مقدار خودش را می‌دهد، هر دو با مقدار برابر مجاز و هر دو با مقدار متفاوت خطای صریح `parser.error` است. کران پایین هر سه پارامتر اینجا اعتبارسنجی می‌شود.
-- `build_config`، 155–196: تبدیل آرگومان‌ها به `BotConfig`؛ شرط انتخاب مدل ریسک بدون تغییر باقی مانده.
-- `main`، 199–239: مسیر مشترک برای هر دو حالت؛ ساخت مسیر پیش‌فرض `--db` (`paper_t{trend}_p{left}x{right}.sqlite3`) و `run-label` (`t{trend}_p{left}x{right}`) وقتی صریح داده نشده باشند، چاپ تأخیر تأیید Trend Swing و Entry Pivot به دقیقه، branch بک‌تست یا live، مدیریت خطا.
-- 242–243: تبدیل return code به exit code سیستم.
+- 1–19: docstring معماری دوگانه Trend Swing/Entry Pivot، importهای config/app/feed/historical و `pine_ob_bot.cli_risk` (`resolve_choch_risk_cap`, `validate_fixed_risk_args`).
+- `build_parser`، 33–125: تعریف تمام CLIها شامل `--trend-swing-length`، `--entry-pivot-left/right` و `--swing-length` (deprecated alias). `--choch-risk-cap` اکنون `default=None` دارد (نه 0.005) تا «صریح نداده» از «صریح 0.005 خواسته» قابل تفکیک باشد؛ help متن `--fixed-risk` قرارداد کامل را توضیح می‌دهد (یکسان‌سازی BOS/CHoCH روی `risk_fraction`، خاموشی هر مدل تطبیقی و سقف CHoCH، و تناقض با فلگ‌های دیگر).
+- `resolve_swing_settings`، 127–158: تعیین قطعی `(trend_swing_length, entry_pivot_left, entry_pivot_right)`؛ بدون فلگ → 12/5/5، فقط `--swing-length` یا فقط `--trend-swing-length` هرکدام مقدار خودش را می‌دهد، هر دو با مقدار برابر مجاز و هر دو با مقدار متفاوت خطای صریح `parser.error` است. کران پایین هر سه پارامتر اینجا اعتبارسنجی می‌شود.
+- `build_config`، 161–202: تبدیل آرگومان‌ها به `BotConfig`؛ `choch_risk_cap_fraction` از `resolve_choch_risk_cap(args.fixed_risk, args.choch_risk_cap)` می‌آید (نه مستقیم از `args.choch_risk_cap`)؛ شرط انتخاب مدل تطبیقی پیش‌فرض بدون تغییر باقی مانده (زیر `--fixed-risk` طبیعتاً به False می‌رسد چون هیچ فلگ تطبیقی دیگری هم‌زمان مجاز نیست).
+- `main`، 205–245: بلافاصله بعد از `parser.parse_args`، `validate_fixed_risk_args(parser, args)` صدا می‌شود (پیش از `resolve_swing_settings` و پیش از هر کار MT5/فایل)؛ سپس مسیر مشترک برای هر دو حالت: ساخت مسیر پیش‌فرض `--db` (`paper_t{trend}_p{left}x{right}.sqlite3`) و `run-label` (`t{trend}_p{left}x{right}`) وقتی صریح داده نشده باشند، چاپ تأخیر تأیید Trend Swing و Entry Pivot به دقیقه، branch بک‌تست یا live، مدیریت خطا.
+- 248–250: تبدیل return code به exit code سیستم.
+
+### `pine_ob_bot/cli_risk.py` (1–50، فایل جدید)
+
+منبع مشترک resolve/validate برای `--fixed-risk` و `--choch-risk-cap`، تا `run_pine_ob_paper.py` و `tools/run_tick_backtest.py` دو پیاده‌سازی دستی موازی نداشته باشند که می‌توانستند از هم واگرا شوند (همان باگی که این فایل رفعش کرد).
+
+- `DEFAULT_CHOCH_RISK_CAP`: مقدار پیش‌فرض استاندارد سقف ریسک CHoCH، 0.005.
+- `ADAPTIVE_RISK_SIZING_FLAGS`: نگاشت dest→flag شش سوییچ مدل تطبیقی، برای پیام خطای یکسان در هر دو runner.
+- `validate_fixed_risk_args(parser, args)`: اگر `args.fixed_risk` باشد، هر فلگ تطبیقی فعال یا `--choch-risk-cap` صریح را با `parser.error()` (یعنی `SystemExit`) رد می‌کند؛ بدون `--fixed-risk` بی‌اثر است.
+- `resolve_choch_risk_cap(fixed_risk, explicit_cap)`: `--fixed-risk` → `None`؛ وگرنه `explicit_cap` اگر داده شده باشد، وگرنه `DEFAULT_CHOCH_RISK_CAP`.
 
 ### `config.py` (1–191)
 
@@ -284,6 +305,7 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 - `market_recorder.py`: مسیر روزانه، dedupe آخرین row و append tick/candle.
 - `historical.py`: load CSV، ساخت `PineSwingOBEngine` و `ClassicEntryPivotDetector` جدا از `PaperApp` ولی از همان کلاس‌ها و با همان ترتیب (`update_m5_trend` سپس `entry_pivot.process` سپس `add_ob`)، `broker.enable_entry_pivot_gate()` بلافاصله بعد از ساخت broker، spread ثابت، شمارش `major_bos_count`/`major_choch_count`/`major_swing_highs/lows` و تولید `summary` گسترده‌شده (شامل `trend_swing_length`, `entry_pivot_left/right`, `entry_pivot_highs/lows`, `buy_setups`/`sell_setups`, `setups_rejected_trend_mismatch/neutral_trend/no_entry_pivot`, `pending_orders_created/cancelled_trend_change`, `filled_orders`, `closed_trades`, `average_r`, `max_drawdown`) و خروجی نام‌گذاری‌شده.
 - `tick_historical.py`: خواندن streaming تیک‌های روزانه، ساخت M5 Bid، همان `ClassicEntryPivotDetector` بلافاصله بعد از `update_m5_trend` در `close_bar`، warm-up غیرقابل‌معامله و اجرای tick-level همان engine/context/broker؛ `summary` نیز `trend_swing_length`/`entry_pivot_left/right`/`buy_setups`/`sell_setups` را اضافه می‌کند.
+- `tools/run_tick_backtest.py`: CLI روی `tick_historical.run_tick_historical`. همان `build_parser`/`resolve_swing_settings`/`build_config`/`main` الگوی `run_pine_ob_paper.py` را دارد و `--choch-risk-cap`/`--fixed-risk` را از همان `pine_ob_bot/cli_risk.py` resolve/validate می‌کند؛ `main` بلافاصله بعد از `parser.parse_args` و **پیش از** glob کردن فایل‌های تیک ماه، `validate_fixed_risk_args` را صدا می‌زند تا ترکیب متناقض پیش از هر I/O متوقف شود.
 - `report_worker.py`: thread daemon و queue ظرفیت یک؛ `submit` non-blocking، `close` join، `_run` اجرای callback و log خطا.
 - `reporting.py`: `export_daily_html/metrics` فیلتر timezone؛ `export_reports` trade/summary؛ `export_breakdown` گروه‌های تشخیصی؛ `export_html` داشبورد self-contained؛ helperهای group/equity/bucket.
 - `dashboard_server.py`: HTTP server thread، index redirect و shutdown.
@@ -311,13 +333,15 @@ python tools/fetch_mt5_ticks.py --month 2026-06 --month 2026-05
 python tools/run_tick_backtest.py --month 2026-06
 ```
 
-سوییچ‌های مهم: `--trend-swing-length` (جایگزین توصیه‌شده `--swing-length` که همچنان به‌عنوان alias قدیمی کار می‌کند)، `--entry-pivot-left`, `--entry-pivot-right`, `--rr`, `--bos-only`, `--include-choch`, `--fixed-risk`, `--choch-risk-cap`, `--target-mode`, `--entry-mode`, `--min-entry-wait`, `--max-positions`, `--no-market-capture`, `--no-dashboard`, `--db` (پیش‌فرض خودکار از روی Trend Swing/Entry Pivot)، `--run-label` (پیش‌فرض خودکار مشابه).
+سوییچ‌های مهم: `--trend-swing-length` (جایگزین توصیه‌شده `--swing-length` که همچنان به‌عنوان alias قدیمی کار می‌کند)، `--entry-pivot-left`, `--entry-pivot-right`, `--rr`, `--bos-only`, `--include-choch`, `--fixed-risk`, `--choch-risk-cap`, `--target-mode`, `--entry-mode`, `--min-entry-wait`, `--max-positions`, `--no-market-capture`, `--no-dashboard`, `--db` (پیش‌فرض خودکار از روی Trend Swing/Entry Pivot)، `--run-label` (پیش‌فرض خودکار مشابه). `tools/run_tick_backtest.py` همین سوییچ‌های ریسک را با همان معنا می‌پذیرد؛ فقط `--once`/`--db`/`--backtest` که مخصوص اجرای زنده/OHLC است را ندارد (به‌جایش `--month`/`--data-root`/`--out`).
 
 نکته سازگاری: اگر هم `--swing-length` و هم `--trend-swing-length` داده شوند و مقدارشان متفاوت باشد، runner با خطای صریح متوقف می‌شود؛ اگر برابر باشند مجاز است.
 
+نکته ریسک: `--fixed-risk` با هر یک از `--liquidity-risk-sizing`, `--choch-risk-sizing`, `--combined-context-risk-sizing`, `--displacement-risk-sizing`, `--choch-displacement-risk-sizing`, `--three-factor-risk-sizing` یا با `--choch-risk-cap` صریح ترکیب شود، هر دو runner پیش از شروع هر کار با `parser.error()` متوقف می‌شوند (نگاه کنید به بخش «۶. ریسک و حجم» و `pine_ob_bot/cli_risk.py`).
+
 ## 13. تست، محدودیت و performance
 
-تست‌ها pivot/ATR/BOS/CHoCH/OB، Bid/Ask و gap، SL-first، position sizing، restart، contextها، demo guard، recorder، dashboard و report worker را پوشش می‌دهند. دستور پذیرش:
+تست‌ها pivot/ATR/BOS/CHoCH/OB، Bid/Ask و gap، SL-first، position sizing، restart، contextها، demo guard، recorder، dashboard و report worker را پوشش می‌دهند. `tests/test_fixed_risk_cli.py` جداگانه resolve/validate مشترک `--fixed-risk`/`--choch-risk-cap` را روی هر دو parser واقعی (`run_pine_ob_paper.py` و `tools/run_tick_backtest.py`) و اثر واقعی آن (نرخ ریسک یکسان BOS/CHoCH بدون سقف) را از مسیر واقعی `PaperBroker` بدون mock می‌سنجد. دستور پذیرش:
 
 ```powershell
 python -m unittest discover -s tests -q

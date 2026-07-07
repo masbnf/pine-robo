@@ -1,5 +1,5 @@
 {
-  "acknowledged_at_utc": "2026-07-07T00:42:42+00:00",
+  "acknowledged_at_utc": "2026-07-07T23:08:23+00:00",
   "files": {
     "pine_ob_bot/__init__.py": {
       "guide_section": "public-api",
@@ -8,6 +8,10 @@
     "pine_ob_bot/app.py": {
       "guide_section": "app-orchestration",
       "sha256": "16b1f7da6b6e3592920bd611fc4003b5912a3809366b93f9dfb8024a88940c5f"
+    },
+    "pine_ob_bot/cli_risk.py": {
+      "guide_section": "fixed-risk-cli",
+      "sha256": "e37611335e2cc66ca5b6ce8aafafb7ab7ea7dde3bb7d5aa61b9a5773a6726561"
     },
     "pine_ob_bot/config.py": {
       "guide_section": "configuration",
@@ -79,7 +83,7 @@
     },
     "run_pine_ob_paper.py": {
       "guide_section": "runner-cli",
-      "sha256": "eef4b6968e94d7eba8f783e12199cb0b493a6a038a56cbfedc1a3f903de877d2"
+      "sha256": "c9bcd8639c178a56d4a26e57028462cd60b19deaff85839c15b6cd2b7f02577d"
     },
     "tools/fetch_mt5_ticks.py": {
       "guide_section": "tick-download",
@@ -87,7 +91,7 @@
     },
     "tools/run_tick_backtest.py": {
       "guide_section": "tick-backtest-cli",
-      "sha256": "88a3fa2925c13a224f1721f68a4bd76f7dcbf4fef10a1b4c95c803b826170423"
+      "sha256": "46c84c4cf9566a5f6b0e39e97a47d038741f48350fbba75c255161b2c9bbc1c0"
     },
     "tools/run_tick_risk_comparison.py": {
       "guide_section": "tick-risk-comparison",

@@ -30,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
 from pine_ob_bot.tick_historical import run_tick_historical
 
@@ -71,12 +72,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help="risk 1.25%% for causal top-quartile BOS displacement, else 0.75%%")
     parser.add_argument("--choch-displacement-risk-sizing", action="store_true",
                         help="risk 0.75/1.0/1.25%% from opposite CHoCH + adaptive displacement")
-    parser.add_argument("--choch-risk-cap", type=float, default=0.005, metavar="FRACTION",
-                        help="optional maximum risk fraction for CHoCH setups, e.g. 0.005")
+    parser.add_argument("--choch-risk-cap", type=float, default=None, metavar="FRACTION",
+                        help="maximum risk fraction for CHoCH setups (default: 0.005; "
+                             "cannot be combined with --fixed-risk)")
     parser.add_argument("--three-factor-risk-sizing", action="store_true",
                         help="score opposite CHoCH, displacement and adaptive OB age")
     parser.add_argument("--fixed-risk", action="store_true",
-                        help="disable the default CHoCH+Displacement risk sizing")
+                        help="use BotConfig.risk_fraction uniformly for BOS and CHoCH: "
+                             "disables every adaptive risk-sizing model and the CHoCH "
+                             "risk cap (choch_risk_cap_fraction=None). Cannot be combined "
+                             "with any adaptive risk-sizing flag or an explicit "
+                             "--choch-risk-cap.")
 
     parser.add_argument("--no-market-capture", action="store_true",
                         help="(no effect here; kept for CLI parity with the live runner)")
@@ -150,7 +156,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
                 args.choch_risk_sizing, args.combined_context_risk_sizing,
                 args.displacement_risk_sizing, args.three_factor_risk_sizing))
         ) or args.choch_displacement_risk_sizing,
-        choch_risk_cap_fraction=args.choch_risk_cap,
+        choch_risk_cap_fraction=resolve_choch_risk_cap(args.fixed_risk, args.choch_risk_cap),
         three_factor_risk_sizing_enabled=args.three_factor_risk_sizing,
 
         market_capture_enabled=not args.no_market_capture,
@@ -171,6 +177,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    validate_fixed_risk_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
     paths = sorted((args.data_root / args.month).glob(f"ticks_{args.symbol}_*.csv*"))
