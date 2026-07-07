@@ -1,0 +1,4 @@
+pandas>=2.0
+numpy>=1.24
+# Windows only — needed for tools/fetch_mt5_data.py (real MT5 data download)
+MetaTrader5>=5.0; platform_system == "Windows"

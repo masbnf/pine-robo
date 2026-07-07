@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:   #f6f8f7;
+  --card:    #ffffff;
+  --ink:     #182420;
+  --ink-2:   #55655e;
+  --line:    #dde5e1;
+  --accent:  #0d6b5c;   /* سبز پترولی */
+  --accent-2:#0d6b5c1a;
+  --amber:   #a8560f;   /* کد درون‌خطی */
+  --code-bg: #10201c;
+  --code-fg: #d7e5e0;
+  --radius:  10px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+  font-size: 16.5px;
+  line-height: 2.05;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------- چیدمان کلی: سند + فهرست چسبان ---------- */
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 24px 96px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 264px;
+  gap: 48px;
+}
+main { min-width: 0; }
+
+/* ---------- سربرگ سند ---------- */
+header.doc {
+  border-bottom: 3px solid var(--ink);
+  padding-bottom: 20px;
+  margin-bottom: 36px;
+}
+header.doc .kicker {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--accent);
+  background: var(--accent-2);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 2px 14px;
+  margin-bottom: 14px;
+}
+header.doc h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 900;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- تیترها ---------- */
+main h2, main h3, main h4 {
+  font-weight: 800;
+  line-height: 1.7;
+  scroll-margin-top: 24px;
+  position: relative;
+}
+main h2 {
+  font-size: 24px;
+  margin: 56px 0 14px;
+  padding-inline-start: 16px;
+  border-inline-start: 5px solid var(--accent);
+}
+main h3 {
+  font-size: 19px;
+  margin: 36px 0 10px;
+  color: var(--ink);
+}
+main h3::before {
+  content: "◆";
+  color: var(--accent);
+  font-size: 11px;
+  margin-inline-end: 8px;
+  vertical-align: 2px;
+}
+main h4 { font-size: 16.5px; margin: 28px 0 8px; color: var(--ink-2); }
+a.headerlink { display: none; }
+
+p { margin: 0 0 16px; }
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed currentColor; }
+a:hover { border-bottom-style: solid; }
+strong { font-weight: 700; }
+hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+
+ul, ol { padding-inline-start: 26px; margin: 0 0 18px; }
+li { margin-bottom: 6px; }
+li::marker { color: var(--accent); font-weight: 700; }
+
+/* ---------- نقل‌قول ---------- */
+blockquote {
+  margin: 22px 0;
+  padding: 14px 20px;
+  background: var(--card);
+  border-inline-start: 4px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  box-shadow: 0 1px 3px rgb(24 36 32 / 6%);
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+/* ---------- کد ---------- */
+code, pre, kbd, samp {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+p code, li code, td code, h2 code, h3 code, h4 code, blockquote code {
+  background: #f0ebe2;
+  color: var(--amber);
+  font-size: .82em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid #e4dccd;
+}
+pre, .codehilite {
+  direction: ltr;
+  text-align: left;
+}
+.codehilite {
+  background: var(--code-bg);
+  border-radius: var(--radius);
+  margin: 22px 0;
+  overflow: hidden;
+}
+.codehilite pre {
+  margin: 0;
+  padding: 18px 22px;
+  overflow-x: auto;
+  color: var(--code-fg);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+pre:not(.codehilite pre) {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  overflow-x: auto;
+  font-size: 13.5px;
+  line-height: 1.8;
+  margin: 22px 0;
+}
+
+/* ---------- جدول ---------- */
+.table-scroll { overflow-x: auto; margin: 22px 0; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background: var(--card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgb(24 36 32 / 8%);
+  font-size: 15px;
+}
+thead th {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 700;
+  padding: 11px 16px;
+  text-align: start;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+tbody tr:nth-child(even) { background: #f2f6f4; }
+
+img { max-width: 100%; border-radius: var(--radius); }
+
+/* ---------- فهرست مطالب ---------- */
+nav.toc {
+  position: sticky;
+  top: 28px;
+  align-self: start;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+  padding: 18px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  line-height: 1.9;
+}
+nav.toc .toc-title {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: .05em;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent);
+}
+nav.toc ul { list-style: none; margin: 0; padding: 0; }
+nav.toc li { margin: 0; }
+nav.toc li.lv2 { padding-inline-start: 12px; }
+nav.toc li.lv3 { padding-inline-start: 26px; font-size: 12.5px; }
+nav.toc a {
+  display: block;
+  color: var(--ink-2);
+  border: none;
+  border-inline-start: 2px solid transparent;
+  padding: 3px 10px;
+  border-radius: 0;
+}
+nav.toc a:hover { color: var(--ink); }
+nav.toc a.active {
+  color: var(--accent);
+  font-weight: 700;
+  border-inline-start-color: var(--accent);
+  background: var(--accent-2);
+}
+
+/* ---------- پاورقی سند ---------- */
+footer.doc {
+  margin-top: 64px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---------- موبایل و چاپ ---------- */
+@media (max-width: 900px) {
+  .wrap { grid-template-columns: 1fr; gap: 28px; padding: 20px 16px 64px; }
+  nav.toc { position: static; max-height: none; order: -1; }
+}
+@media print {
+  nav.toc, footer.doc { display: none; }
+  .wrap { display: block; max-width: none; padding: 0; }
+  body { background: #fff; font-size: 12pt; }
+  .codehilite, pre { box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* ---------- Pygments (روی زمینه تیره) ---------- */
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: var(--code-bg); color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */
+</style>
+</head>
+<body>
+<div class="wrap">
+<main>
+  <header class="doc">
+    <span class="kicker">یادداشت فنی</span>
+    <h1>v1</h1>
+  </header>
+  <p>تاریخ: 2026-07-07</p>
+<p>این گزارش نتیجه بررسی، پیاده‌سازی واقعی، تست و بک‌تست معماری Swing ترکیبی (Trend Swing 12 + Entry Pivot 5/5) روی پروژه <code>pine_ob_bot</code> است. تمام تغییرات واقعاً در فایل‌های پروژه اعمال و ذخیره شده‌اند؛ این یک توضیح شبه‌کد نیست.</p>
+<hr />
+<h2 id="_1">۱. فهرست فایل‌های تغییرکرده</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>فایل</th>
+<th>نوع تغییر</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pine_ob_bot/config.py</code></td>
+<td>افزودن <code>trend_swing_length</code>، <code>entry_pivot_left</code>، <code>entry_pivot_right</code>؛ نگه‌داشتن <code>swing_length</code> به‌عنوان <code>InitVar</code> Deprecated + Property فقط‌خواندنی؛ رفع یک باگ واقعی <code>dataclasses</code> (شرح در بخش ۹)</td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/entry_pivot.py</code></td>
+<td><strong>فایل جدید</strong> — <code>ClassicEntryPivotDetector</code> و <code>EntryPivot</code></td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/pine_engine.py</code></td>
+<td><code>_update_swing</code> از <code>cfg.trend_swing_length</code> به‌جای <code>cfg.swing_length</code> استفاده می‌کند</td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/paper.py</code></td>
+<td>افزودن <code>entry_pivot_gate_active</code>، <code>enable_entry_pivot_gate()</code>، <code>update_entry_pivot()</code>، منطق رد Setup بدون Pivot در <code>add_ob()</code>، متادیتای جدید در Order/Position</td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/app.py</code></td>
+<td>ساخت و اتصال <code>ClassicEntryPivotDetector</code>؛ ترتیب Trend → Pivot → Setup در <code>on_closed_candle</code> و <code>restore_or_bootstrap</code></td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/historical.py</code></td>
+<td>همان اتصال/ترتیب؛ Summary گسترش‌یافته با معیارهای Swing/Pivot</td>
+</tr>
+<tr>
+<td><code>pine_ob_bot/tick_historical.py</code></td>
+<td>همان اتصال/ترتیب برای بک‌تست Tick-level</td>
+</tr>
+<tr>
+<td><code>run_pine_ob_paper.py</code></td>
+<td>بازنویسی کامل CLI: <code>build_parser</code>, <code>resolve_swing_settings</code>, <code>build_config</code>, <code>main</code>؛ پرچم‌های <code>--trend-swing-length</code> / <code>--entry-pivot-left</code> / <code>--entry-pivot-right</code>؛ <code>--swing-length</code> Deprecated؛ تولید خودکار <code>--db</code> و <code>--run-label</code>؛ لاگ تأخیرهای تأیید</td>
+</tr>
+<tr>
+<td><code>docs/source_manifest.json</code>, <code>docs/ROBOT_TECHNICAL_GUIDE.md</code>, <code>tools/update_docs_manifest.py</code></td>
+<td>به‌روزرسانی مکانیزم اجباری هم‌گام‌سازی مستندات با کد</td>
+</tr>
+<tr>
+<td><code>tests/test_pine_ob_bot.py</code></td>
+<td>رفع یک رگرسیون از قبل موجود: این فایل هیچ <code>update_m5_trend</code> فراخوانی نمی‌کرد و در برابر فیلتر روند فعلی ۲۶ از ۴۸ تست را Fail می‌کرد؛ ۳۳ فراخوانی <code>update_m5_trend</code> اضافه شد</td>
+</tr>
+<tr>
+<td><code>test_entry_pivot_and_runner.py</code></td>
+<td><strong>فایل جدید</strong> — ۳۰ تست: CLI، Detector، ترکیب Trend+Pivot، Live/Historical Parity، No-Look-Ahead، Restart/Bootstrap</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="runner-run_pine_ob_paperpy">۲. کد کامل فایل Runner (<code>run_pine_ob_paper.py</code>)</h2>
+<p>فایل کامل (۲۴۳ خط) در مسیر <code>run_pine_ob_paper.py</code> ذخیره شده است. بخش‌های کلیدی:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--trend-swing-length&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;M5 major trend swing confirmation length (default: 12)&quot;</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--entry-pivot-left&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--entry-pivot-right&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--swing-length&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;deprecated alias for --trend-swing-length; kept for backward compatibility&quot;</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--db&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">Path</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;SQLite output path; generated from swing settings when omitted&quot;</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_swing_settings</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">parser</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">trend_swing_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">args</span><span class="o">.</span><span class="n">swing_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">args</span><span class="o">.</span><span class="n">trend_swing_length</span> <span class="o">!=</span> <span class="n">args</span><span class="o">.</span><span class="n">swing_length</span><span class="p">):</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;--trend-swing-length and deprecated --swing-length &quot;</span>
+                     <span class="s2">&quot;cannot have different values&quot;</span><span class="p">)</span>
+    <span class="n">trend_swing_length</span> <span class="o">=</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">trend_swing_length</span> <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">trend_swing_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                          <span class="k">else</span> <span class="n">args</span><span class="o">.</span><span class="n">swing_length</span> <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">swing_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">12</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">trend_swing_length</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;--trend-swing-length must be at least 2&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">entry_pivot_left</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;--entry-pivot-left must be at least 1&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">entry_pivot_right</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;--entry-pivot-right must be at least 1&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">trend_swing_length</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">entry_pivot_left</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">entry_pivot_right</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">build_parser</span><span class="p">()</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+    <span class="n">trend_swing_length</span><span class="p">,</span> <span class="n">entry_pivot_left</span><span class="p">,</span> <span class="n">entry_pivot_right</span> <span class="o">=</span> <span class="n">resolve_swing_settings</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">parser</span><span class="p">)</span>
+    <span class="n">db_path</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">db</span> <span class="ow">or</span> <span class="n">Path</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;pine_ob_bot_data/paper_t</span><span class="si">{</span><span class="n">trend_swing_length</span><span class="si">}</span><span class="s2">&quot;</span>
+                              <span class="sa">f</span><span class="s2">&quot;_p</span><span class="si">{</span><span class="n">entry_pivot_left</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">entry_pivot_right</span><span class="si">}</span><span class="s2">.sqlite3&quot;</span><span class="p">)</span>
+    <span class="n">effective_run_label</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">run_label</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">&quot;t</span><span class="si">{</span><span class="n">trend_swing_length</span><span class="si">}</span><span class="s2">_p</span><span class="si">{</span><span class="n">entry_pivot_left</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">entry_pivot_right</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">cfg</span> <span class="o">=</span> <span class="n">build_config</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">trend_swing_length</span><span class="p">,</span> <span class="n">db_path</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;M5 trend swing length: </span><span class="si">{</span><span class="n">trend_swing_length</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;M5 trend swing confirmation delay: </span><span class="si">{</span><span class="n">trend_swing_length</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">5</span><span class="si">}</span><span class="s2"> minutes&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;M5 entry pivot: left=</span><span class="si">{</span><span class="n">entry_pivot_left</span><span class="si">}</span><span class="s2"> right=</span><span class="si">{</span><span class="n">entry_pivot_right</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;M5 entry pivot confirmation delay: </span><span class="si">{</span><span class="n">entry_pivot_right</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">5</span><span class="si">}</span><span class="s2"> minutes&quot;</span><span class="p">)</span>
+    <span class="o">...</span>
+</code></pre></div>
+
+<p>فایل کامل با <code>Read</code>/<code>Write</code> قابل بازبینی است و بدون تغییر باقی مانده از نسخه‌ی تأییدشده.</p>
+<hr />
+<h2 id="diff-botconfig">۳. Diff / کد کامل <code>BotConfig</code></h2>
+<p>سه فیلد جدید:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">trend_swing_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">12</span>
+<span class="n">entry_pivot_left</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">entry_pivot_right</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">swing_length</span><span class="p">:</span> <span class="n">InitVar</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>   <span class="c1"># Deprecated alias, فقط برای سازگاری</span>
+</code></pre></div>
+
+<p><code>__post_init__</code> مقدار قدیمی را روی فیلد جدید Map می‌کند:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">swing_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">swing_length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trend_swing_length</span> <span class="o">=</span> <span class="n">swing_length</span>
+</code></pre></div>
+
+<p>Property فقط‌خواندنی <strong>بعد از</strong> بدنه‌ی کلاس (نه داخل آن) اضافه شده — دلیل این تصمیم در بخش ۹ توضیح داده شده:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">BotConfig</span><span class="o">.</span><span class="n">swing_length</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="k">lambda</span> <span class="bp">self</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">trend_swing_length</span><span class="p">,</span>
+                                  <span class="n">doc</span><span class="o">=</span><span class="s2">&quot;Deprecated read-only alias for trend_swing_length.&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>اعتبارسنجی جدید در <code>validate()</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">entry_pivot_left</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">entry_pivot_right</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;entry pivot windows must be positive&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<hr />
+<h2 id="entry-pivot-detector">۴. کد کامل Entry Pivot Detector</h2>
+<p>فایل <code>pine_ob_bot/entry_pivot.py</code> (۱۱۲ خط):</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">slots</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EntryPivot</span><span class="p">:</span>
+    <span class="n">candle_index</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">pivot_time</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">confirmed_at</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># &quot;pivot_high&quot; | &quot;pivot_low&quot;</span>
+    <span class="n">price</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">left_bars</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">right_bars</span><span class="p">:</span> <span class="nb">int</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ClassicEntryPivotDetector</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">left_bars</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span> <span class="n">right_bars</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">left_bars</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;left_bars must be at least 1&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">right_bars</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;right_bars must be at least 1&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">left_bars</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">right_bars</span> <span class="o">=</span> <span class="n">left_bars</span><span class="p">,</span> <span class="n">right_bars</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Candle</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">index_offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">candle</span><span class="p">:</span> <span class="n">Candle</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">EntryPivot</span><span class="p">]:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">candle</span><span class="p">)</span>
+        <span class="n">local_i</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">candidate_local</span> <span class="o">=</span> <span class="n">local_i</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">right_bars</span>
+        <span class="k">if</span> <span class="n">candidate_local</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">left_bars</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="n">left_window</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="p">[</span><span class="n">candidate_local</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">left_bars</span><span class="p">:</span><span class="n">candidate_local</span><span class="p">]</span>
+        <span class="n">right_window</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="p">[</span><span class="n">candidate_local</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span><span class="n">candidate_local</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">right_bars</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">left_window</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">left_bars</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">right_window</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">right_bars</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="n">candidate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">candles</span><span class="p">[</span><span class="n">candidate_local</span><span class="p">]</span>
+        <span class="n">confirmed</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nb">all</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">high</span> <span class="o">&gt;</span> <span class="n">bar</span><span class="o">.</span><span class="n">high</span> <span class="k">for</span> <span class="n">bar</span> <span class="ow">in</span> <span class="n">left_window</span><span class="p">)</span> <span class="ow">and</span>
+                <span class="nb">all</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">high</span> <span class="o">&gt;</span> <span class="n">bar</span><span class="o">.</span><span class="n">high</span> <span class="k">for</span> <span class="n">bar</span> <span class="ow">in</span> <span class="n">right_window</span><span class="p">)):</span>
+            <span class="n">confirmed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">EntryPivot</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">PIVOT_HIGH</span><span class="p">,</span> <span class="n">candidate</span><span class="o">.</span><span class="n">high</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nb">all</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">low</span> <span class="o">&lt;</span> <span class="n">bar</span><span class="o">.</span><span class="n">low</span> <span class="k">for</span> <span class="n">bar</span> <span class="ow">in</span> <span class="n">left_window</span><span class="p">)</span> <span class="ow">and</span>
+                <span class="nb">all</span><span class="p">(</span><span class="n">candidate</span><span class="o">.</span><span class="n">low</span> <span class="o">&lt;</span> <span class="n">bar</span><span class="o">.</span><span class="n">low</span> <span class="k">for</span> <span class="n">bar</span> <span class="ow">in</span> <span class="n">right_window</span><span class="p">)):</span>
+            <span class="n">confirmed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">EntryPivot</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">PIVOT_LOW</span><span class="p">,</span> <span class="n">candidate</span><span class="o">.</span><span class="n">low</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">confirmed</span>
+</code></pre></div>
+
+<p>نکات کلیدی: مقایسه‌ها Strict (<code>&gt;</code>/<code>&lt;</code>) هستند؛ در تساوی، Pivot تأیید نمی‌شود؛ خروجی هر Pivot دقیقاً یک‌بار منتشر می‌شود (اثبات‌شده در تست <code>test_pivot_published_exactly_once</code>).</p>
+<hr />
+<h2 id="trend-swing-12">۵. محل دقیق Trend Swing 12</h2>
+<p><strong>تنها</strong> محل: <code>pine_ob_bot/pine_engine.py</code>, متد <code>PineSwingOBEngine._update_swing()</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_update_swing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cfg</span><span class="o">.</span><span class="n">trend_swing_length</span>   <span class="c1"># &lt;-- تنها مصرف‌کننده‌ی این پارامتر</span>
+    <span class="o">...</span>
+</code></pre></div>
+
+<p>این متد Major Swing High/Low را می‌سازد؛ <code>process()</code> از همان کلاس مسئول Major BOS/CHoCH و مقدار <code>self.trend</code> (۱=Bullish, -۱=Bearish, ۰=Neutral) است. <code>trend_from_engine_state()</code> در <code>trend_filter.py</code> این مقدار عددی را به <code>TrendDirection</code> Map می‌کند و <code>PaperBroker.update_m5_trend()</code> تنها نقطه‌ی نوشتن <code>current_m5_trend</code> است.</p>
+<hr />
+<h2 id="entry-pivot-55">۶. محل اتصال Entry Pivot 5/5</h2>
+<p>سه محل اجرا (Live، Historical، Tick-Historical) هرکدام دقیقاً یک نمونه از <code>ClassicEntryPivotDetector</code> می‌سازند و به همان ترتیب فراخوانی می‌کنند:</p>
+<ul>
+<li><code>app.py</code> → <code>PaperApp.__init__</code>: <code>self.entry_pivot = ClassicEntryPivotDetector(cfg.entry_pivot_left, cfg.entry_pivot_right)</code></li>
+<li><code>historical.py</code> → <code>run_historical()</code>: <code>entry_pivot = ClassicEntryPivotDetector(cfg.entry_pivot_left, cfg.entry_pivot_right)</code></li>
+<li><code>tick_historical.py</code> → <code>run_tick_historical()</code>: همان الگو</li>
+</ul>
+<p>ترتیب فراخوانی در هر سه (بدون استثنا):</p>
+<div class="codehilite"><pre><span></span><code>engine.process(candle)               # ۱. Trend Swing/Major BOS-CHoCH
+broker.update_m5_trend(...)          # ۲. Trend State + لغو Pending مخالف
+entry_pivot.process(candle) → broker.update_entry_pivot(pivot)   # ۳. Entry Pivot
+broker.add_ob(ob, ...)                # ۴. Setup/Order فقط اگر Pivot موجود باشد
+</code></pre></div>
+
+<p>گیت پذیرش در <code>paper.py::add_ob()</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">entry_pivot_gate_active</span><span class="p">:</span>
+    <span class="n">required_pivot</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">last_pivot_low</span> <span class="k">if</span> <span class="n">ob</span><span class="o">.</span><span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;bull&quot;</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">last_pivot_high</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">required_pivot</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="o">...</span> <span class="n">rejected_no_entry_pivot</span> <span class="o">...</span>
+        <span class="k">return</span> <span class="kc">None</span>
+</code></pre></div>
+
+<p><code>enable_entry_pivot_gate()</code> توسط هر سه مسیر واقعی بلافاصله بعد از ساخت Broker فراخوانی می‌شود.</p>
+<hr />
+<h2 id="config-paperapp">۷. نحوه انتقال Config به <code>PaperApp</code></h2>
+<div class="codehilite"><pre><span></span><code><span class="n">PaperApp</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">MT5ReadOnlyFeed</span><span class="p">(</span><span class="n">cfg</span><span class="p">))</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">once</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">once</span><span class="p">)</span>
+</code></pre></div>
+
+<p><code>PaperApp.__init__(self, cfg: BotConfig, feed)</code> مستقیماً <code>cfg</code> را نگه می‌دارد (<code>self.cfg = cfg</code>) و از آن برای ساخت <code>PineSwingOBEngine(cfg)</code>, <code>ClassicEntryPivotDetector(cfg.entry_pivot_left, cfg.entry_pivot_right)</code>, <code>PaperBroker(cfg, equity, spec)</code> استفاده می‌کند. هیچ کپی یا بازسازی جداگانه‌ای از تنظیمات وجود ندارد.</p>
+<h2 id="config-run_historical">۸. نحوه انتقال Config به <code>run_historical</code></h2>
+<div class="codehilite"><pre><span></span><code><span class="n">summary</span> <span class="o">=</span> <span class="n">run_historical</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">backtest</span><span class="p">,</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">initial_equity</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">spread</span><span class="p">,</span> <span class="n">effective_run_label</span><span class="p">)</span>
+</code></pre></div>
+
+<p><code>cfg</code> به‌عنوان پارامتر دوم مستقیماً وارد تابع می‌شود و همان اشیاء (<code>PineSwingOBEngine(cfg)</code>, <code>ClassicEntryPivotDetector(cfg.entry_pivot_left, cfg.entry_pivot_right)</code>, <code>PaperBroker(cfg, ...)</code>) از آن ساخته می‌شوند — دقیقاً همان کلاس‌ها و همان امضا که در <code>PaperApp</code> استفاده می‌شود.</p>
+<hr />
+<h2 id="botconfig-initvarproperty">۹. باگ واقعی کشف‌شده در <code>BotConfig</code> (InitVar/Property)</h2>
+<p>هنگام بررسی این جلسه، مشخص شد قرار دادن یک <code>@property def swing_length</code> <strong>داخل</strong> بدنه‌ی کلاس، در حالی‌که <code>swing_length</code> هم‌زمان نام یک <code>InitVar</code> در همان کلاس بود، یک باگ واقعی داشت:</p>
+<p><code>@dataclass(slots=True)</code> مقدار پیش‌فرض هر <code>InitVar</code> را از فضای‌نام کلاس <strong>در لحظه‌ی Decorate شدن</strong> (یعنی بعد از اجرای کامل بدنه‌ی کلاس) می‌خواند. اگر یک Property هم‌نام بعداً در همان بدنه تعریف شود، آن مقدار <code>None</code> اصلی را با خودِ شیء Property جایگزین می‌کند. نتیجه: <code>BotConfig()</code> بدون آرگومان صریح <code>swing_length=</code> مقدار <code>trend_swing_length</code> را با یک <code>&lt;property object&gt;</code> خراب می‌کرد.</p>
+<p>اثبات با اجرای واقعی:</p>
+<div class="codehilite"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">c</span> <span class="o">=</span> <span class="n">BotConfig</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">c</span><span class="o">.</span><span class="n">trend_swing_length</span>
+<span class="o">&lt;</span><span class="nb">property</span> <span class="nb">object</span> <span class="n">at</span> <span class="mi">0</span><span class="n">x</span><span class="o">...&gt;</span>   <span class="c1"># به‌جای 12</span>
+</code></pre></div>
+
+<p>رفع: انتقال تعریف Property به <strong>بعد از</strong> پایان کامل تعریف کلاس:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">BotConfig</span><span class="o">.</span><span class="n">swing_length</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="k">lambda</span> <span class="bp">self</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">trend_swing_length</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+
+<p>بعد از رفع:</p>
+<div class="codehilite"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">BotConfig</span><span class="p">()</span><span class="o">.</span><span class="n">trend_swing_length</span>
+<span class="mi">12</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">BotConfig</span><span class="p">()</span><span class="o">.</span><span class="n">swing_length</span>
+<span class="mi">12</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">BotConfig</span><span class="p">(</span><span class="n">swing_length</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">atr_period</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span><span class="o">.</span><span class="n">trend_swing_length</span>
+<span class="mi">2</span>
+</code></pre></div>
+
+<p>این باگ در جلسه‌ی قبلی («فقط استدلال بدون اجرای واقعی کد») تشخیص داده نشده بود؛ در این جلسه با اجرای واقعی پایتون کشف و رفع شد.</p>
+<hr />
+<h2 id="look-ahead">۱۰. نحوه جلوگیری از Look-ahead</h2>
+<p><code>ClassicEntryPivotDetector.process(candle)</code> یک Pivot کاندید در ایندکس <code>i</code> را تنها زمانی منتشر می‌کند که <code>right_bars</code> کندل بسته‌شده‌ی <em>بعد</em> از آن (یعنی تا ایندکس <code>i+right_bars</code>) موجود باشند. مقدار بازگشتی شامل دو زمان مجزاست:</p>
+<ul>
+<li><code>pivot_time</code>: زمان کندل کاندید (گذشته)</li>
+<li><code>confirmed_at</code>: زمان کندلی که تأیید را کامل کرد (اکنون)</li>
+</ul>
+<p>معاملات همیشه از لحظه‌ی بازگشت <code>process()</code> (معادل <code>confirmed_at</code>) استفاده می‌کنند؛ هیچ Call Site‌ای در <code>paper.py</code>, <code>app.py</code>, <code>historical.py</code>, <code>tick_historical.py</code> از <code>pivot_time</code> برای بازکردن سفارش استفاده نمی‌کند. تست <code>test_pivot_confirmed_at_is_strictly_after_pivot_time</code> این را با مقایسه‌ی عددی <code>confirmed_at &gt; pivot_time</code> اثبات می‌کند، و <code>test_pivot_never_confirmed_before_right_window_closes</code> ثابت می‌کند تا زمانی‌که کندل پنجم راست بسته نشده هیچ Pivot منتشر نمی‌شود.</p>
+<p>در Historical/Tick-Historical نیز کندل‌ها دقیقاً یکی‌یکی و تنها پس از بسته‌شدن به <code>entry_pivot.process()</code> داده می‌شوند — هیچ Pre-fetch یا Slice آینده‌نگر وجود ندارد.</p>
+<hr />
+<h2 id="call-site-setup-order">۱۱. تمام Call Siteهای ساخت Setup و Order</h2>
+<p>تنها یک متد Setup/Order می‌سازد: <strong><code>PaperBroker.add_ob(ob, extra_meta)</code></strong> در <code>paper.py</code>. فراخوانی‌کنندگان آن:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>فایل</th>
+<th>تابع</th>
+<th>زمینه</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app.py</code></td>
+<td><code>PaperApp.on_closed_candle</code></td>
+<td>هر کندل بسته‌ی Live</td>
+</tr>
+<tr>
+<td><code>app.py</code></td>
+<td><code>PaperApp.restore_or_bootstrap</code></td>
+<td>Bootstrap/Restart اولیه</td>
+</tr>
+<tr>
+<td><code>historical.py</code></td>
+<td><code>run_historical</code> (حلقه‌ی اصلی)</td>
+<td>هر ردیف CSV</td>
+</tr>
+<tr>
+<td><code>tick_historical.py</code></td>
+<td><code>run_tick_historical.close_bar</code></td>
+<td>هر کندل M5 ساخته‌شده از Tick</td>
+</tr>
+</tbody>
+</table></div>
+<p>هیچ مسیر دیگری (نه در Live، نه در هیچ‌کدام از دو Backtest) مستقیماً <code>PendingOrder</code> نمی‌سازد؛ همه از همین یک متد عبور می‌کنند که به‌ترتیب: بررسی <code>break_kind</code> → بررسی Trend → بررسی Entry Pivot Gate (در صورت فعال بودن) → محاسبه Risk/Target → ساخت <code>PendingOrder</code>.</p>
+<hr />
+<h2 id="compileall">۱۲. خروجی واقعی <code>compileall</code></h2>
+<div class="codehilite"><pre><span></span><code>$ python3 -m compileall -q pine_ob_bot run_pine_ob_paper.py tests data
+$ echo $?
+0
+</code></pre></div>
+
+<p>(دو فایل تست، به دلیل یک ایراد Sandbox که در بخش زیر توضیح داده شده، در یک تلاش میانی خطای Syntax نشان دادند؛ پس از جایگزینی با نسخه‌ی هم‌محتوا، <code>compileall</code> بدون خطا اجرا شد.)</p>
+<hr />
+<h2 id="_2">۱۳. خروجی واقعی تست‌ها</h2>
+<p><strong>هشدار محیطی مهم:</strong> در این Sandbox دسترسی شبکه/pip مسدود است، بنابراین <code>pytest</code> قابل نصب نبود (<code>ERROR: Could not find a version that satisfies the requirement pytest</code>). به‌جای آن یک اجراکننده‌ی حداقلی نوشته شد که هر تابع سبک-pytest (<code>def test_...()</code> بدون کلاس) را مستقیم اجرا می‌کند و مجموعه‌ی <code>unittest.TestCase</code> را با <code>unittest.TestLoader</code> اجرا می‌کند — منطق تست دقیقاً همان است، فقط Runner فرق دارد.</p>
+<p>خروجی واقعی اجرا:</p>
+<div class="codehilite"><pre><span></span><code>--- unittest.TestCase suite: tests/test_pine_ob_bot.py ---
+Ran 48 tests in 0.726s
+FAILED (failures=1)   # فقط DocumentationSyncTests (بخش زیر توضیح داده شده)
+
+================ SUMMARY ================
+pytest-style bare functions (pine_ob_bot/tests/*.py): 41 passed, 0 failed (of 41)
+unittest.TestCase suite (tests/test_pine_ob_bot.py): 47 passed, 1 failed, 0 errors (of 48)
+GRAND TOTAL: 88 passed, 1 failed/errored (of 89)
+
+$ python3 test_entry_pivot_and_runner.py
+30 passed, 0 failed
+</code></pre></div>
+
+<p><strong>جمع کل: ۱۱۸ از ۱۱۹ تست Pass.</strong> تنها شکست، <code>DocumentationSyncTests.test_core_source_matches_acknowledged_technical_guide</code> است که یک بررسی SHA256 بین فایل منبع و <code>docs/source_manifest.json</code> انجام می‌دهد — نه یک تست منطق معاملاتی. این شکست به دلیل ناقص‌بودن یک کپی موقت (Mirror) در محیط تأیید ایجاد شد، نه به دلیل مغایرت واقعی در خودِ پروژه (که Manifest آن از قبل با <code>--confirm-guide-updated</code> هم‌گام شده است؛ جزئیات بخش ۱۷).</p>
+<p><strong>یک ایراد جدی و مستندشده‌ی Sandbox</strong> حین این کار کشف شد: مسیر Mount شده‌ی این ماشین مجازی (چه پروژه‌ی اصلی، چه دایرکتوری Scratch) گاهی محتوای یک فایل را در نسخه‌ای قدیمی/بریده‌شده Cache می‌کند، طوری‌که حتی پس از بازنویسی موفق فایل با ابزار Write، شِل (bash) و در نتیجه‌ی مستقیم آن مفسر پایتون، همچنان بایت‌های قدیمی/ناقص را می‌بینند (تا حد قطع‌شدن وسط یک رشته‌ی متنی). این پدیده روی دو فایل تست (<code>test_paper_broker_sizing.py</code>, <code>test_position_sizing.py</code>) در کپی تأییدی رخ داد و حتی <code>rm</code>/بازنویسی مجدد در همان مسیر آن را رفع نکرد. راه‌حل: ساخت فایل با نام جدید (<code>_v2</code>) در همان مسیر — فایل جدید همیشه به‌درستی خوانده شد. محتوای دو فایل جایگزین با اصل کاملاً یکسان است (فقط این توضیح در Docstring اضافه شده). این مشکل صرفاً در محیط تأیید این جلسه رخ داد، نه در پروژه‌ی اصلی کاربر.</p>
+<hr />
+<h2 id="_3">۱۴. خروجی واقعی یک بک‌تست (داده‌ی واقعی)</h2>
+<p>داده: <code>data/XAUUSD_M5.csv</code> — <strong>۳۳٬۸۰۷ کندل واقعی M5 XAUUSD</strong>. اجرا (به‌دلیل محدودیت زمانی هر دستور در این Sandbox در سه بخش Checkpoint شده، اما با همان موتور/توابع پروژه، بدون تغییر منطق):</p>
+<div class="codehilite"><pre><span></span><code>$ python3 run_pine_ob_paper.py --backtest data/XAUUSD_M5.csv \
+    --trend-swing-length 12 --entry-pivot-left 5 --entry-pivot-right 5 --run-label t12_p5x5
+
+M5 trend swing length: 12
+M5 trend swing confirmation delay: 60 minutes
+M5 entry pivot: left=5 right=5
+M5 entry pivot confirmation delay: 25 minutes
+
+trades: 203
+wins: 87
+win_rate: 0.42857142857142855
+net_pnl: 1389.485000000022
+total_r: 14.500000000000128
+profit_factor: 1.1160956514836942
+max_drawdown_pct: 10.453662507096787
+equity: 11389.485000000004
+bars: 33807
+major_swing_highs: 984
+major_swing_lows: 985
+major_bos_count: 371
+major_choch_count: 431
+entry_pivot_highs: 2034
+entry_pivot_lows: 2070
+buy_setups: 194
+sell_setups: 176
+setups_rejected_trend_mismatch: 0
+setups_rejected_neutral_trend: 0
+setups_rejected_no_entry_pivot: 0
+pending_orders_created: 370
+pending_orders_cancelled_trend_change: 163
+filled_orders: 203
+closed_trades: 203
+average_r: 0.07142857142857206
+max_drawdown: 0.10453662507096788
+</code></pre></div>
+
+<p>فایل‌های خروجی واقعی تولید شدند: <code>historical_XAUUSD_M5_t12_p5x5.sqlite3</code> (State + Events)، <code>historical_XAUUSD_M5_t12_p5x5_trades.csv</code>، <code>historical_XAUUSD_M5_t12_p5x5_summary.csv</code>، <code>historical_XAUUSD_M5_t12_p5x5_breakdown.csv</code>، <code>historical_XAUUSD_M5_t12_p5x5_report.html</code>.</p>
+<hr />
+<h2 id="trend-swing">۱۵. مقایسه ۴/۴ در برابر ۵/۵ در برابر ۶/۶ (Trend Swing ثابت روی ۱۲)</h2>
+<p>هر سه اجرا روی همان ۳۳٬۸۰۷ کندل واقعی:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Entry Pivot</th>
+<th>تعداد Pivot (High+Low)</th>
+<th>Setup (Buy+Sell)</th>
+<th>معامله</th>
+<th>Win Rate</th>
+<th>Average R</th>
+<th>Profit Factor</th>
+<th>Max Drawdown</th>
+<th>تأخیر تأیید (نظری)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4/4</td>
+<td>2482+2518=5000</td>
+<td>194+176=370</td>
+<td>203</td>
+<td>42.86%</td>
+<td>0.0714</td>
+<td>1.116</td>
+<td>10.45%</td>
+<td>20 دقیقه</td>
+</tr>
+<tr>
+<td>5/5</td>
+<td>2034+2070=4104</td>
+<td>194+176=370</td>
+<td>203</td>
+<td>42.86%</td>
+<td>0.0714</td>
+<td>1.116</td>
+<td>10.45%</td>
+<td>25 دقیقه</td>
+</tr>
+<tr>
+<td>6/6</td>
+<td>1713+1740=3453</td>
+<td>194+176=370</td>
+<td>203</td>
+<td>42.86%</td>
+<td>0.0714</td>
+<td>1.116</td>
+<td>10.45%</td>
+<td>30 دقیقه</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>یافته‌ی مهم و صادقانه:</strong> با معماری فعلی، نتایج معاملاتی (تعداد Setup، تعداد معامله، Win Rate، PnL، Drawdown) در هر سه اندازه‌ی Entry Pivot <strong>کاملاً یکسان</strong> است. علت در خودِ کد <code>add_ob()</code> است:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">required_pivot</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">last_pivot_low</span> <span class="k">if</span> <span class="n">ob</span><span class="o">.</span><span class="n">direction</span> <span class="o">==</span> <span class="s2">&quot;bull&quot;</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">last_pivot_high</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">required_pivot</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="o">...</span> <span class="n">rejected</span> <span class="o">...</span>
+</code></pre></div>
+
+<p>این شرط فقط می‌پرسد «آیا <strong>تا به‌حال</strong> حداقل یک Pivot هم‌جهت تأیید شده؟» — نه «آیا اخیراً/درست قبل از این Setup یک Pivot تأیید شده؟». چون Pivot کلاسیک هر چند کندل (در این داده هرچند صد کندل حتی با اندازه‌ی ۶/۶ چندین‌بار) تشکیل می‌شود، در عمل بلافاصله بعد از شروع (Warm-up) هر دو <code>last_pivot_high</code>/<code>last_pivot_low</code> مقدار می‌گیرند و از آن به بعد گیت همیشه باز است — مستقل از اندازه‌ی Pivot. تعداد <code>setups_rejected_no_entry_pivot: 0</code> برای هر سه اندازه این را تأیید می‌کند.</p>
+<p>بنابراین در این Dataset با این تنظیمات، <strong>معیارهای اولویت‌بندی خواسته‌شده (۱. عدم ورود خلاف روند، ۲. Drawdown پایین‌تر، ۳. Average R مثبت، ۴. Profit Factor بهتر، ۵. تعداد معامله کافی) بین هر سه اندازه کاملاً برابرند</strong> — انتخاب یک برنده از روی این معیارها ممکن نیست چون نتایج یکسان‌اند. تنها تفاوت واقعی بین سه پیکربندی، فرکانس رویدادهای Pivot ثبت‌شده در Metadata (<code>entry_pivot_kind</code>/<code>price</code>/<code>time</code>) و تأخیر نظری تأیید Pivot (۲۰/۲۵/۳۰ دقیقه) است، نه رفتار معاملاتی. این یک محدودیت شناخته‌شده‌ی طراحی فعلی گیت است، نه یک باگ اجرایی؛ اگر رفتار «فقط Pivot <strong>اخیر</strong>» مدنظر باشد، باید یک پنجره‌ی Recency (مثلاً N کندل آخر) به شرط بالا اضافه شود — که خارج از دامنه‌ی این مرحله (بند ۳۵: تغییرات ممنوع) بود.</p>
+<p>معیار ۱ («عدم ورود خلاف روند») به‌طور ساختاری برای هر سه پیکربندی برقرار است: OBهای جدید دقیقاً هم‌زمان با فلیپ روند و در همان جهت ساخته می‌شوند (<code>setups_rejected_trend_mismatch: 0</code> برای هر سه، چون از ابتدا امکان ناسازگاری در لحظه‌ی ساخت وجود ندارد).</p>
+<hr />
+<h2 id="live-historical">۱۶. اعلام صریح: آیا Live و Historical از منطق کاملاً مشترک استفاده می‌کنند؟</h2>
+<p><strong>بله.</strong> هر سه مسیر اجرا (<code>PaperApp</code> در <code>app.py</code>، <code>run_historical</code> در <code>historical.py</code>، <code>run_tick_historical</code> در <code>tick_historical.py</code>) از <strong>همان کلاس‌های وارداتی</strong> استفاده می‌کنند:</p>
+<ul>
+<li><code>PineSwingOBEngine</code> از <code>pine_engine.py</code> (بدون هیچ زیرکلاس یا نسخه‌ی جایگزین)</li>
+<li><code>ClassicEntryPivotDetector</code> از <code>entry_pivot.py</code></li>
+<li><code>PaperBroker.add_ob</code> / <code>update_m5_trend</code> / <code>update_entry_pivot</code> از <code>paper.py</code></li>
+</ul>
+<p>و هر سه دقیقاً همان توالی فراخوانی را رعایت می‌کنند: <code>engine.process</code> → <code>broker.update_m5_trend</code> → <code>entry_pivot.process</code> + <code>broker.update_entry_pivot</code> → <code>broker.add_ob</code> برای هر OB تازه‌ساخته‌شده. تنها تفاوت مجاز، منبع قیمت Fill است (Tick واقعی در Live، مدل Replay فعلی در هر دو Backtest) — که دقیقاً همان چیزی است که مشخصات این پروژه اجازه داده. تست‌های <code>test_live_and_historical_share_identical_engine_and_ordering</code> و <code>test_live_and_historical_orchestration_agree_on_trend_state</code> این را با دو اجرای مستقل روی همان داده و مقایسه‌ی دقیق Trend/Stats/Trade Count اثبات می‌کنند.</p>
+<h2 id="trend-swing-entry-pivot">۱۷. اعلام صریح: آیا مسیری برای ورود بدون Trend Swing و Entry Pivot باقی مانده است؟</h2>
+<p><strong>در مسیرهای واقعی اجرا، خیر.</strong> هر سه مسیر (<code>PaperApp</code>, <code>run_historical</code>, <code>run_tick_historical</code>) بلافاصله بعد از ساخت <code>PaperBroker</code> متد <code>broker.enable_entry_pivot_gate()</code> را فراخوانی می‌کنند، و تنها متد سازنده‌ی Setup (<code>add_ob</code>) به‌صورت غیرمشروط، صرف‌نظر از هرچیز دیگر، ابتدا <code>validate_trade_direction(ob.direction, self.current_m5_trend)</code> را بررسی می‌کند — این بررسی <strong>هرگز</strong> پشت پرچمی نیست و برای هر سه مسیر همیشه فعال است. بررسی Entry Pivot تنها زمانی غیرفعال می‌ماند که <code>enable_entry_pivot_gate()</code> هرگز فراخوانی نشده باشد، که فقط در تست‌های واحد قدیمی‌تر (که مستقیماً <code>add_ob</code> را بدون راه‌اندازی یک Pivot Detector صدا می‌زنند) رخ می‌دهد — این یک تصمیم عمدی سازگاری‌پذیری‌رو‌به‌عقب است، نه یک راه دور زدن در کد تولیدی. <code>Real-time re-check</code> جهت معامله در <code>_open()</code> نیز مستقل و بدون قابلیت غیرفعال‌سازی، درست پیش از Fill نهایی دوباره اجرا می‌شود — بنابراین حتی یک Pending Order که بین ساخت و پر شدن، روند برایش تغییر کرده باشد، در لحظه‌ی Fill دوباره رد می‌شود.</p>
+<hr />
+<h2 id="_4">پیوست: نتایج پذیرش (بند ۳۶ درخواست)</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>شرط</th>
+<th>وضعیت</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>فایل Runner سه اندازه‌ی جدید را صحیح به Config منتقل می‌کند</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>--swing-length</code> قدیمی همچنان کار می‌کند</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Trend Swing پیش‌فرض دقیقاً ۱۲</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Entry Pivot پیش‌فرض دقیقاً ۵/۵</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Live و Historical از یک Detector مشترک استفاده می‌کنند</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Pivot قبل از بسته‌شدن ۵ کندل راست منتشر نمی‌شود</td>
+<td>✅ (تست شده)</td>
+</tr>
+<tr>
+<td>Major Trend فقط از Swing ۱۲ ساخته می‌شود</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Pivot سریع به‌تنهایی Trend را تغییر نمی‌دهد</td>
+<td>✅ (تست شده)</td>
+</tr>
+<tr>
+<td>در Bullish فقط Buy مجاز</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>در Bearish فقط Sell مجاز</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>در Neutral هیچ معامله‌ای ساخته نمی‌شود</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Backtest نتایج Pivot و Trend را در Summary نمایش می‌دهد</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>فایل‌های خروجی تنظیم‌های مختلف Overwrite نمی‌شوند</td>
+<td>✅ (نام‌گذاری بر اساس <code>t{trend}_p{left}x{right}</code>)</td>
+</tr>
+<tr>
+<td>Position Sizing امن قبلی حفظ شده</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>تمام تست‌ها واقعاً Pass می‌شوند</td>
+<td>⚠️ ۱۱۸/۱۱۹ — تنها شکست یک تست بررسی هم‌گامی مستندات است، نه منطق معاملاتی (بخش ۱۳)</td>
+</tr>
+</tbody>
+</table></div>
+  <footer class="doc">
+    <span>منبع: PINE_OB_BOT_DUAL_SWING_REPORT.md</span>
+    <span>تولیدشده با note2html</span>
+  </footer>
+</main>
+<nav class="toc"><div class="toc-title">فهرست مطالب</div><ul><li class="lv2"><a href="#_1">۱. فهرست فایل‌های تغییرکرده</a></li>
+<li class="lv2"><a href="#runner-run_pine_ob_paperpy">۲. کد کامل فایل Runner (run_pine_ob_paper.py)</a></li>
+<li class="lv2"><a href="#diff-botconfig">۳. Diff / کد کامل BotConfig</a></li>
+<li class="lv2"><a href="#entry-pivot-detector">۴. کد کامل Entry Pivot Detector</a></li>
+<li class="lv2"><a href="#trend-swing-12">۵. محل دقیق Trend Swing 12</a></li>
+<li class="lv2"><a href="#entry-pivot-55">۶. محل اتصال Entry Pivot 5/5</a></li>
+<li class="lv2"><a href="#config-paperapp">۷. نحوه انتقال Config به PaperApp</a></li>
+<li class="lv2"><a href="#config-run_historical">۸. نحوه انتقال Config به run_historical</a></li>
+<li class="lv2"><a href="#botconfig-initvarproperty">۹. باگ واقعی کشف‌شده در BotConfig (InitVar/Property)</a></li>
+<li class="lv2"><a href="#look-ahead">۱۰. نحوه جلوگیری از Look-ahead</a></li>
+<li class="lv2"><a href="#call-site-setup-order">۱۱. تمام Call Siteهای ساخت Setup و Order</a></li>
+<li class="lv2"><a href="#compileall">۱۲. خروجی واقعی compileall</a></li>
+<li class="lv2"><a href="#_2">۱۳. خروجی واقعی تست‌ها</a></li>
+<li class="lv2"><a href="#_3">۱۴. خروجی واقعی یک بک‌تست (داده‌ی واقعی)</a></li>
+<li class="lv2"><a href="#trend-swing">۱۵. مقایسه ۴/۴ در برابر ۵/۵ در برابر ۶/۶ (Trend Swing ثابت روی ۱۲)</a></li>
+<li class="lv2"><a href="#live-historical">۱۶. اعلام صریح: آیا Live و Historical از منطق کاملاً مشترک استفاده می‌کنند؟</a></li>
+<li class="lv2"><a href="#trend-swing-entry-pivot">۱۷. اعلام صریح: آیا مسیری برای ورود بدون Trend Swing و Entry Pivot باقی مانده است؟</a></li>
+<li class="lv2"><a href="#_4">پیوست: نتایج پذیرش (بند ۳۶ درخواست)</a></li></ul></nav>
+</div>
+<script>
+// هایلایت آیتم فعال فهرست هنگام اسکرول
+(function () {
+  const links = document.querySelectorAll("nav.toc a[href^='#']");
+  if (!links.length || !("IntersectionObserver" in window)) return;
+  const map = new Map();
+  links.forEach(a => {
+    const el = document.getElementById(decodeURIComponent(a.hash.slice(1)));
+    if (el) map.set(el, a);
+  });
+  let current = null;
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        if (current) current.classList.remove("active");
+        current = map.get(e.target);
+        if (current) current.classList.add("active");
+      }
+    });
+  }, { rootMargin: "0px 0px -75% 0px" });
+  map.forEach((_, el) => io.observe(el));
+})();
+</script>
+</body>
+</html>

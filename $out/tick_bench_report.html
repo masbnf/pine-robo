@@ -1,0 +1,668 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Pine Swing-OB Tick Backtest — bench</title><style>
+    :root{color-scheme:dark;font-family:Inter,Segoe UI,Arial;background:#0b1020;color:#e7ebf5}
+    body{max-width:1500px;margin:auto;padding:28px}.muted{color:#93a0ba}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0}
+    .card,section{background:#121a2e;border:1px solid #23304d;border-radius:12px;padding:16px}.card span{display:block;color:#93a0ba;font-size:13px}.card b{font-size:22px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}h1,h2{margin-top:0}h2{font-size:17px}
+    table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #26324c;text-align:right}th:first-child,td:first-child{text-align:left}th{color:#9fb0ce}
+    svg{width:100%;height:260px}.line{fill:none;stroke:#49d39d;stroke-width:2}.area{fill:#49d39d22}.axis{stroke:#394766;stroke-width:1}
+    @media(max-width:850px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}body{padding:12px}}
+    </style></head>
+    <body><h1>Pine Swing-OB Tick Backtest — bench</h1><div class="muted"><b>source files</b>: 1 · <b>ticks</b>: 41299 · <b>closed M5</b>: 161 · <b>warmup bars</b>: 100 · <b>swing</b>: 12 · <b>RR</b>: 1.5 · <b>breaks</b>: BOS+CHoCH</div><div class="cards"><div class="card"><span>Trades</span><b>1</b></div><div class="card"><span>Win rate</span><b>0.00%</b></div><div class="card"><span>Net PnL</span><b>$-54.36</b></div><div class="card"><span>Total R</span><b>-1.15</b></div><div class="card"><span>Profit factor</span><b>0.00</b></div><div class="card"><span>Max drawdown</span><b>0.54%</b></div><div class="card"><span>Equity</span><b>$9,945.64</b></div></div>
+    <section><h2>Equity curve</h2><svg viewBox="0 0 1200 260" role="img"><line class="axis" x1="16" y1="244" x2="1184" y2="244"/><polygon class="area" points="16,244 16.0,16.0 1184,244"/><polyline class="line" points="16.0,16.0"/></svg></section><div class="grid"><section><h2>Direction</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bull</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>BOS vs CHoCH</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CHoCH</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Sessions (UTC)</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>London</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Weekdays</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Monday</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Months</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-07</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Entry hours (UTC)</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>11:00</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M15 trend</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bear</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5/M15 alignment</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>counter</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M15 last break</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>BOS</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M15 range zone</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>discount</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5 opposite liquidity event</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>swept</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5 opposite sweep</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>True</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M15 opposite liquidity event</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>swept</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M15 opposite sweep</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>True</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Setup-related M5 sweep</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>False</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5 last CHoCH direction</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>bull</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5 CHoCH alignment at setup</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>aligned</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>M5 CHoCH alignment at fill</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>aligned</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Combined context risk score</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Applied risk</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0.50%</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Entry execution source</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>tick</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Exit execution source</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>tick</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Target source</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>fixed_rr</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>BOS directional body</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>True</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Adaptive BOS displacement</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>False</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section><h2>Adaptive OB age</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Group</th>
+      <th>Trades</th>
+      <th>Win %</th>
+      <th>Net PnL</th>
+      <th>Total R</th>
+      <th>Avg R</th>
+      <th>PF</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>False</td>
+      <td>1</td>
+      <td>0.00</td>
+      <td>-54.36</td>
+      <td>-1.15</td>
+      <td>-1.15</td>
+      <td>0.00</td>
+    </tr>
+  </tbody>
+</table></section><section class='wide'><h2>Latest trades (max 200)</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>opened_time</th>
+      <th>direction</th>
+      <th>break_kind</th>
+      <th>entry</th>
+      <th>stop</th>
+      <th>target</th>
+      <th>result</th>
+      <th>pnl</th>
+      <th>r_multiple</th>
+      <th>max_adverse_r</th>
+      <th>max_favorable_r</th>
+      <th>width/ATR</th>
+      <th>wait bars</th>
+      <th>m15_trend</th>
+      <th>m15_alignment</th>
+      <th>m15_last_break_kind</th>
+      <th>m15_break_age_bars</th>
+      <th>m15_range_zone</th>
+      <th>context_risk_score</th>
+      <th>risk tier</th>
+      <th>bos_displacement_top_quartile</th>
+      <th>fill_m5_last_choch_alignment</th>
+      <th>setup_m5_opposite_sweep</th>
+      <th>entry_execution_source</th>
+      <th>entry_execution_spread</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-07-06T11:37:38.333000+00:00</td>
+      <td>bull</td>
+      <td>CHoCH</td>
+      <td>4151.090</td>
+      <td>4147.150</td>
+      <td>4157.075</td>
+      <td>loss</td>
+      <td>-54.360</td>
+      <td>-1.150</td>
+      <td>1.150</td>
+      <td>0.594</td>
+      <td>None</td>
+      <td>10</td>
+      <td>bear</td>
+      <td>counter</td>
+      <td>BOS</td>
+      <td>18</td>
+      <td>discount</td>
+      <td>0</td>
+      <td>0.50%</td>
+      <td>False</td>
+      <td>aligned</td>
+      <td>False</td>
+      <td>tick</td>
+      <td>0.130</td>
+    </tr>
+  </tbody>
+</table></section></div></body></html>

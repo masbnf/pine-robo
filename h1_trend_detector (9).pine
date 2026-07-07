@@ -1,0 +1,546 @@
+//@version=5
+indicator("H1 Trend + M15 Liquidity Zones (Warm-up)", overlay=true, max_lines_count=500, max_boxes_count=500)
+
+// ============================ Inputs ============================
+swingLenH1  = input.int(1,   "H1 Swing Strength (bars each side)", minval=1, group="H1 Settings")
+lookbackH1  = input.int(48,  "H1 Lookback (candles)",              minval=5, group="H1 Settings")
+htfResH1    = input.timeframe("60", "H1 Resolution",               group="H1 Settings")
+
+swingLenM15       = input.int(4,   "M15 Swing Strength (bars each side)", minval=1,    group="M15 Liquidity Settings")
+lookbackM15       = input.int(16,  "M15 Block Size (candles)",            minval=4,    group="M15 Liquidity Settings")
+htfResM15         = input.timeframe("15", "M15 Resolution",               group="M15 Liquidity Settings")
+maxZones          = input.int(50,  "Max Zones (per side)",                minval=5,    group="M15 Liquidity Settings")
+proxThresh        = input.float(0.5, "Zone Merge Threshold ($)",          minval=0.01, group="M15 Liquidity Settings")
+h1ProxThresh      = input.float(2.0, "H1 Level Proximity ($) → 3-sweep", minval=0.1,  group="M15 Liquidity Settings")
+minScoreExtraLife = input.int(2,   "Min Touch Score → 2nd sweep",         minval=2,    group="M15 Liquidity Settings")
+
+htfResM5    = input.timeframe("5",   "M5 Resolution",                group="M5 BOS Settings")
+lookbackM5  = input.int(32,  "M5 BOS Lookback (candles)",          minval=4,   group="M5 BOS Settings")
+bosThresh   = input.float(5.0, "BOS Merge Threshold ($)",          minval=0.1, group="M5 BOS Settings")
+
+showLabel   = input.bool(true, "Show H1 Trend Label",          group="Display")
+showBg      = input.bool(true, "Show Background Tint",          group="Display")
+showMaxMin  = input.bool(true, "Show H1 Swing High/Low",        group="Display")
+showZones   = input.bool(true, "Show M15 Liquidity Zones",      group="Display")
+showOBs     = input.bool(true, "Show M15 OB Boxes",             group="Display")
+showM15Choch = input.bool(true, "Show M15 CHoCH Lines",          group="Display")
+showBOS     = input.bool(true, "Show M5 BOS Lines",             group="Display")
+maxBosLines = input.int(100, "Max M5 BOS Lines (per side)", minval=10, group="Display")
+maxObBoxes  = input.int(100, "Max M15 OB Boxes", minval=10, group="Display")
+maxChochLines = input.int(50, "Max M15 CHoCH Lines (per side)", minval=10, group="Display")
+
+// ============================ Last-week filter ============================
+lastWeekStart = timenow - 7 * 24 * 60 * 60 * 1000
+inLastWeek = time >= lastWeekStart
+m15BoxMs = int(timeframe.in_seconds(htfResM15) * 1000)
+
+// ============================ H1 Trend Logic ============================
+f_h1Trend() =>
+    var float sh1 = na
+    var float sh2 = na
+    var float sl1 = na
+    var float sl2 = na
+    var int shBar1 = na
+    var int shBar2 = na
+    var int slBar1 = na
+    var int slBar2 = na
+    var int trendState = 0
+
+    var float[] phArr    = array.new_float(0)
+    var int[]   phBarArr = array.new_int(0)
+    var float[] plArr    = array.new_float(0)
+    var int[]   plBarArr = array.new_int(0)
+
+    ph = ta.pivothigh(swingLenH1, swingLenH1)
+    pl = ta.pivotlow(swingLenH1, swingLenH1)
+
+    if not na(ph)
+        sh2 := sh1
+        shBar2 := shBar1
+        sh1 := ph
+        shBar1 := bar_index - swingLenH1
+        array.push(phArr, ph)
+        array.push(phBarArr, bar_index - swingLenH1)
+
+    if not na(pl)
+        sl2 := sl1
+        slBar2 := slBar1
+        sl1 := pl
+        slBar1 := bar_index - swingLenH1
+        array.push(plArr, pl)
+        array.push(plBarArr, bar_index - swingLenH1)
+
+    phTrim = true
+    while phTrim
+        if array.size(phBarArr) > 0
+            if bar_index - array.get(phBarArr, 0) > lookbackH1
+                array.shift(phArr)
+                array.shift(phBarArr)
+            else
+                phTrim := false
+        else
+            phTrim := false
+
+    plTrim = true
+    while plTrim
+        if array.size(plBarArr) > 0
+            if bar_index - array.get(plBarArr, 0) > lookbackH1
+                array.shift(plArr)
+                array.shift(plBarArr)
+            else
+                plTrim := false
+        else
+            plTrim := false
+
+    swMax = array.size(phArr) > 0 ? array.max(phArr) : na
+    swMin = array.size(plArr) > 0 ? array.min(plArr) : na
+
+    validHighs = not na(sh1) and not na(sh2) and (bar_index - shBar2 <= lookbackH1)
+    validLows  = not na(sl1) and not na(sl2) and (bar_index - slBar2 <= lookbackH1)
+
+    if validHighs and validLows
+        if sh1 > sh2 and sl1 > sl2
+            trendState := 1
+        else if sh1 < sh2 and sl1 < sl2
+            trendState := -1
+        else
+            trendState := 0
+
+    [trendState, sh1, sl1, swMax, swMin]
+
+[h1Trend, h1SH, h1SL, h1Max, h1Min] = request.security(syminfo.tickerid, htfResH1, f_h1Trend(), lookahead=barmerge.lookahead_off)
+
+// ============================ M15 Swing Detection ============================
+f_m15Raw() =>
+    ph15 = ta.pivothigh(swingLenM15, swingLenM15)
+    pl15 = ta.pivotlow(swingLenM15, swingLenM15)
+    phBar15  = not na(ph15) ? bar_index - swingLenM15 : na
+    plBar15  = not na(pl15) ? bar_index - swingLenM15 : na
+    phTime15 = not na(ph15) ? time[swingLenM15] : na
+    plTime15 = not na(pl15) ? time[swingLenM15] : na
+    chochRangeHigh15 = ta.highest(high[1], lookbackM15)
+    chochRangeLow15  = ta.lowest(low[1], lookbackM15)
+    bullChoch15 = ta.crossover(close, chochRangeHigh15)
+    bearChoch15 = ta.crossunder(close, chochRangeLow15)
+    bullChochLevel15 = bullChoch15 ? chochRangeHigh15 : na
+    bearChochLevel15 = bearChoch15 ? chochRangeLow15 : na
+    [ph15, pl15, phBar15, plBar15, phTime15, plTime15, bar_index, open, high, low, close, time, bullChochLevel15, bearChochLevel15]
+
+[m15PH, m15PL, m15PHBar, m15PLBar, m15PHTime, m15PLTime, m15Bar, m15Open, m15High, m15Low, m15Close, m15Time, m15BullChochLevel, m15BearChochLevel] = request.security(syminfo.tickerid, htfResM15, f_m15Raw(), lookahead=barmerge.lookahead_off)
+
+// ============================ Block Partitioning ============================
+confirmedPivotBlockId = int(math.floor((m15Bar - swingLenM15) / lookbackM15))
+
+var int     activeHighBlockId = na
+var float[] blockHighs        = array.new_float(0)
+var int[]   blockHighTimes    = array.new_int(0)
+
+var int     activeLowBlockId  = na
+var float[] blockLows         = array.new_float(0)
+var int[]   blockLowTimes     = array.new_int(0)
+
+// ============================ M15 OB Block Storage ============================
+var int   activeObBlockId = na
+var int   lastSeenM15Bar  = na
+var float blockBearTop    = na
+var float blockBearBot    = na
+var int   blockBearTime   = na
+var float blockBullTop    = na
+var float blockBullBot    = na
+var int   blockBullTime   = na
+var box[] obBoxes         = array.new_box(0)
+
+// ============================ M15 CHoCH Storage ============================
+var float[] bullChochPrice = array.new_float(0)
+var line[]  bullChochLine  = array.new_line(0)
+var float[] bearChochPrice = array.new_float(0)
+var line[]  bearChochLine  = array.new_line(0)
+
+// ============================ Persistent M15 Liquidity Zone Storage ============================
+var float[] hiPrice      = array.new_float(0)
+var int[]   hiBar        = array.new_int(0)
+var line[]  hiLine       = array.new_line(0)
+var int[]   hiScore      = array.new_int(0)
+var bool[]  hiInTouch    = array.new_bool(0)
+var int[]   hiSweepCount = array.new_int(0)   // how many times this zone has been swept so far
+var int[]   hiCreateBar  = array.new_int(0)
+
+var float[] loPrice      = array.new_float(0)
+var int[]   loBar        = array.new_int(0)
+var line[]  loLine       = array.new_line(0)
+var int[]   loScore      = array.new_int(0)
+var bool[]  loInTouch    = array.new_bool(0)
+var int[]   loSweepCount = array.new_int(0)
+var int[]   loCreateBar  = array.new_int(0)
+
+newM15Bar = not na(m15Bar) and (na(lastSeenM15Bar) or m15Bar != lastSeenM15Bar)
+
+// ============================ M15 CHoCH Detection (same window as liquidity) ============================
+if newM15Bar
+    if array.size(bullChochPrice) > 0
+        for i = array.size(bullChochPrice) - 1 to 0
+            if m15Close < array.get(bullChochPrice, i)
+                line.delete(array.get(bullChochLine, i))
+                array.remove(bullChochPrice, i)
+                array.remove(bullChochLine, i)
+
+    if array.size(bearChochPrice) > 0
+        for i = array.size(bearChochPrice) - 1 to 0
+            if m15Close > array.get(bearChochPrice, i)
+                line.delete(array.get(bearChochLine, i))
+                array.remove(bearChochPrice, i)
+                array.remove(bearChochLine, i)
+
+    if not na(m15BullChochLevel) and m15Time >= lastWeekStart
+        lvl = m15BullChochLevel
+        if array.size(bullChochPrice) > 0
+            for i = array.size(bullChochPrice) - 1 to 0
+                if math.abs(lvl - array.get(bullChochPrice, i)) <= proxThresh
+                    line.delete(array.get(bullChochLine, i))
+                    array.remove(bullChochPrice, i)
+                    array.remove(bullChochLine, i)
+        array.push(bullChochPrice, lvl)
+        array.push(bullChochLine, line.new(m15Time, lvl, time, lvl, xloc=xloc.bar_time, extend=extend.right, color=color.new(color.lime, showM15Choch ? 0 : 100), width=2, style=line.style_solid))
+        if array.size(bullChochPrice) > maxChochLines
+            array.shift(bullChochPrice)
+            line.delete(array.shift(bullChochLine))
+
+    if not na(m15BearChochLevel) and m15Time >= lastWeekStart
+        lvl = m15BearChochLevel
+        if array.size(bearChochPrice) > 0
+            for i = array.size(bearChochPrice) - 1 to 0
+                if math.abs(lvl - array.get(bearChochPrice, i)) <= proxThresh
+                    line.delete(array.get(bearChochLine, i))
+                    array.remove(bearChochPrice, i)
+                    array.remove(bearChochLine, i)
+        array.push(bearChochPrice, lvl)
+        array.push(bearChochLine, line.new(m15Time, lvl, time, lvl, xloc=xloc.bar_time, extend=extend.right, color=color.new(color.fuchsia, showM15Choch ? 0 : 100), width=2, style=line.style_solid))
+        if array.size(bearChochPrice) > maxChochLines
+            array.shift(bearChochPrice)
+            line.delete(array.shift(bearChochLine))
+
+// ============================ M15 Order Blocks (same block size as liquidity) ============================
+if newM15Bar
+    obBlockId = int(math.floor(m15Bar / lookbackM15))
+    if na(activeObBlockId)
+        activeObBlockId := obBlockId
+
+    if obBlockId != activeObBlockId
+        if not na(blockBearTime) and blockBearTime >= lastWeekStart
+            demandBox = box.new(blockBearTime, blockBearTop, blockBearTime + m15BoxMs, blockBearBot, xloc=xloc.bar_time, border_color=color.new(color.green, showOBs ? 20 : 100), bgcolor=color.new(color.green, showOBs ? 82 : 100))
+            array.push(obBoxes, demandBox)
+        if not na(blockBullTime) and blockBullTime >= lastWeekStart
+            supplyBox = box.new(blockBullTime, blockBullTop, blockBullTime + m15BoxMs, blockBullBot, xloc=xloc.bar_time, border_color=color.new(color.red, showOBs ? 20 : 100), bgcolor=color.new(color.red, showOBs ? 82 : 100))
+            array.push(obBoxes, supplyBox)
+        while array.size(obBoxes) > maxObBoxes
+            box.delete(array.shift(obBoxes))
+
+        blockBearTop := na
+        blockBearBot := na
+        blockBearTime := na
+        blockBullTop := na
+        blockBullBot := na
+        blockBullTime := na
+        activeObBlockId := obBlockId
+
+    if m15Close < m15Open
+        blockBearTop := math.max(m15Open, m15Close)
+        blockBearBot := math.min(m15Open, m15Close)
+        blockBearTime := m15Time
+    if m15Close > m15Open
+        blockBullTop := math.max(m15Open, m15Close)
+        blockBullBot := math.min(m15Open, m15Close)
+        blockBullTime := m15Time
+    lastSeenM15Bar := m15Bar
+
+// ---- Register HIGH zone (sell zone → red) ----
+flushHighBlock = array.size(blockHighs) > 0 and not na(activeHighBlockId) and activeHighBlockId < confirmedPivotBlockId
+if flushHighBlock
+    blockHigh = array.get(blockHighs, 0)
+    blockHighTime = array.get(blockHighTimes, 0)
+    if array.size(blockHighs) > 1
+        for j = 1 to array.size(blockHighs) - 1
+            candidateHigh = array.get(blockHighs, j)
+            if candidateHigh > blockHigh
+                blockHigh := candidateHigh
+                blockHighTime := array.get(blockHighTimes, j)
+
+    // Pass 1: is there already a stronger (higher) zone nearby? → skip new
+    blockHighInLastWeek = blockHighTime >= lastWeekStart
+    skipNew = false
+    if blockHighInLastWeek and array.size(hiPrice) > 0
+        for i = 0 to array.size(hiPrice) - 1
+            if math.abs(blockHigh - array.get(hiPrice, i)) <= proxThresh
+                if array.get(hiPrice, i) >= blockHigh
+                    skipNew := true
+                    break
+
+    // Pass 2: add new zone, first removing any weaker (lower) nearby zones
+    if blockHighInLastWeek and not skipNew
+        if array.size(hiPrice) > 0
+            for i = array.size(hiPrice) - 1 to 0
+                if math.abs(blockHigh - array.get(hiPrice, i)) <= proxThresh
+                    if array.get(hiPrice, i) < blockHigh
+                        line.delete(array.get(hiLine, i))
+                        array.remove(hiPrice, i)
+                        array.remove(hiBar, i)
+                        array.remove(hiLine, i)
+                        array.remove(hiScore, i)
+                        array.remove(hiInTouch, i)
+                        array.remove(hiSweepCount, i)
+                        array.remove(hiCreateBar, i)
+        array.push(hiPrice, blockHigh)
+        array.push(hiBar, blockHighTime)
+        newL = line.new(blockHighTime, blockHigh, time, blockHigh, xloc=xloc.bar_time, extend=extend.right, color=color.new(color.red, showZones ? 0 : 100), width=1)
+        array.push(hiLine, newL)
+        array.push(hiScore, 1)
+        array.push(hiInTouch, false)
+        array.push(hiSweepCount, 0)
+        array.push(hiCreateBar, bar_index)
+        if array.size(hiPrice) > maxZones
+            array.shift(hiPrice)
+            array.shift(hiBar)
+            line.delete(array.shift(hiLine))
+            array.shift(hiScore)
+            array.shift(hiInTouch)
+            array.shift(hiSweepCount)
+            array.shift(hiCreateBar)
+    array.clear(blockHighs)
+    array.clear(blockHighTimes)
+    activeHighBlockId := na
+
+// ---- Register LOW zone (buy zone → green) ----
+flushLowBlock = array.size(blockLows) > 0 and not na(activeLowBlockId) and activeLowBlockId < confirmedPivotBlockId
+if flushLowBlock
+    blockLow = array.get(blockLows, 0)
+    blockLowTime = array.get(blockLowTimes, 0)
+    if array.size(blockLows) > 1
+        for j = 1 to array.size(blockLows) - 1
+            candidateLow = array.get(blockLows, j)
+            if candidateLow < blockLow
+                blockLow := candidateLow
+                blockLowTime := array.get(blockLowTimes, j)
+
+    // Pass 1: is there already a stronger (lower) zone nearby? → skip new
+    blockLowInLastWeek = blockLowTime >= lastWeekStart
+    skipNew = false
+    if blockLowInLastWeek and array.size(loPrice) > 0
+        for i = 0 to array.size(loPrice) - 1
+            if math.abs(blockLow - array.get(loPrice, i)) <= proxThresh
+                if array.get(loPrice, i) <= blockLow
+                    skipNew := true
+                    break
+
+    // Pass 2: add new zone, removing any weaker (higher) nearby zones
+    if blockLowInLastWeek and not skipNew
+        if array.size(loPrice) > 0
+            for i = array.size(loPrice) - 1 to 0
+                if math.abs(blockLow - array.get(loPrice, i)) <= proxThresh
+                    if array.get(loPrice, i) > blockLow
+                        line.delete(array.get(loLine, i))
+                        array.remove(loPrice, i)
+                        array.remove(loBar, i)
+                        array.remove(loLine, i)
+                        array.remove(loScore, i)
+                        array.remove(loInTouch, i)
+                        array.remove(loSweepCount, i)
+                        array.remove(loCreateBar, i)
+        array.push(loPrice, blockLow)
+        array.push(loBar, blockLowTime)
+        newL = line.new(blockLowTime, blockLow, time, blockLow, xloc=xloc.bar_time, extend=extend.right, color=color.new(color.green, showZones ? 0 : 100), width=1)
+        array.push(loLine, newL)
+        array.push(loScore, 1)
+        array.push(loInTouch, false)
+        array.push(loSweepCount, 0)
+        array.push(loCreateBar, bar_index)
+        if array.size(loPrice) > maxZones
+            array.shift(loPrice)
+            array.shift(loBar)
+            line.delete(array.shift(loLine))
+            array.shift(loScore)
+            array.shift(loInTouch)
+            array.shift(loSweepCount)
+            array.shift(loCreateBar)
+    array.clear(blockLows)
+    array.clear(blockLowTimes)
+    activeLowBlockId := na
+
+// Accumulate each confirmed pivot into the block where the pivot actually formed.
+if not na(m15PH) and not na(m15PHBar) and not na(m15PHTime)
+    phBlockId = int(math.floor(m15PHBar / lookbackM15))
+    if na(activeHighBlockId)
+        activeHighBlockId := phBlockId
+    if phBlockId != activeHighBlockId
+        array.clear(blockHighs)
+        array.clear(blockHighTimes)
+        activeHighBlockId := phBlockId
+    array.push(blockHighs, m15PH)
+    array.push(blockHighTimes, m15PHTime)
+
+if not na(m15PL) and not na(m15PLBar) and not na(m15PLTime)
+    plBlockId = int(math.floor(m15PLBar / lookbackM15))
+    if na(activeLowBlockId)
+        activeLowBlockId := plBlockId
+    if plBlockId != activeLowBlockId
+        array.clear(blockLows)
+        array.clear(blockLowTimes)
+        activeLowBlockId := plBlockId
+    array.push(blockLows, m15PL)
+    array.push(blockLowTimes, m15PLTime)
+
+// ============================ Touch Detection (before sweep) ============================
+// A "touch" is a discrete event: price enters the zone range from outside (transition false→true)
+// Sell zone touch: high reaches [zone - proxThresh, zone] without sweeping through
+// Buy zone touch:  low  reaches [zone, zone + proxThresh] without sweeping through
+if array.size(hiPrice) > 0
+    for i = 0 to array.size(hiPrice) - 1
+        zp        = array.get(hiPrice, i)
+        touching  = high >= zp - proxThresh and high <= zp
+        wasInTouch = array.get(hiInTouch, i)
+        if touching and not wasInTouch
+            array.set(hiScore, i, array.get(hiScore, i) + 1)
+        array.set(hiInTouch, i, touching)
+
+if array.size(loPrice) > 0
+    for i = 0 to array.size(loPrice) - 1
+        zp        = array.get(loPrice, i)
+        touching  = low <= zp + proxThresh and low >= zp
+        wasInTouch = array.get(loInTouch, i)
+        if touching and not wasInTouch
+            array.set(loScore, i, array.get(loScore, i) + 1)
+        array.set(loInTouch, i, touching)
+
+// ============================ Sweep Detection (multi-sweep survival) ============================
+// maxSweeps per zone:
+//   nearH1 (within h1ProxThresh of h1Max or h1Min) → 3 sweeps
+//   score >= minScoreExtraLife (touched at least once extra)  → 2 sweeps
+//   otherwise                                                 → 1 sweep (deleted immediately)
+// Visual feedback: solid → dashed (survived 1st sweep) → dotted (survived 2nd sweep) → deleted
+
+if array.size(hiPrice) > 0
+    for i = array.size(hiPrice) - 1 to 0
+        if high > array.get(hiPrice, i) and bar_index > array.get(hiCreateBar, i)
+            zp      = array.get(hiPrice, i)
+            sc      = array.get(hiScore, i)
+            swCnt   = array.get(hiSweepCount, i)
+            nearH1  = math.abs(zp - h1Max) <= h1ProxThresh or math.abs(zp - h1Min) <= h1ProxThresh
+            maxSw   = nearH1 ? 3 : (sc >= minScoreExtraLife ? 2 : 1)
+            newSwCnt = swCnt + 1
+            if newSwCnt >= maxSw
+                line.delete(array.get(hiLine, i))
+                array.remove(hiPrice, i)
+                array.remove(hiBar, i)
+                array.remove(hiLine, i)
+                array.remove(hiScore, i)
+                array.remove(hiInTouch, i)
+                array.remove(hiSweepCount, i)
+                array.remove(hiCreateBar, i)
+            else
+                array.set(hiSweepCount, i, newSwCnt)
+                ln = array.get(hiLine, i)
+                line.set_style(ln, newSwCnt == 1 ? line.style_dashed : line.style_dotted)
+                line.set_color(ln, color.new(color.red, showZones ? (newSwCnt == 1 ? 40 : 65) : 100))
+
+if array.size(loPrice) > 0
+    for i = array.size(loPrice) - 1 to 0
+        if low < array.get(loPrice, i) and bar_index > array.get(loCreateBar, i)
+            zp      = array.get(loPrice, i)
+            sc      = array.get(loScore, i)
+            swCnt   = array.get(loSweepCount, i)
+            nearH1  = math.abs(zp - h1Max) <= h1ProxThresh or math.abs(zp - h1Min) <= h1ProxThresh
+            maxSw   = nearH1 ? 3 : (sc >= minScoreExtraLife ? 2 : 1)
+            newSwCnt = swCnt + 1
+            if newSwCnt >= maxSw
+                line.delete(array.get(loLine, i))
+                array.remove(loPrice, i)
+                array.remove(loBar, i)
+                array.remove(loLine, i)
+                array.remove(loScore, i)
+                array.remove(loInTouch, i)
+                array.remove(loSweepCount, i)
+                array.remove(loCreateBar, i)
+            else
+                array.set(loSweepCount, i, newSwCnt)
+                ln = array.get(loLine, i)
+                line.set_style(ln, newSwCnt == 1 ? line.style_dashed : line.style_dotted)
+                line.set_color(ln, color.new(color.green, showZones ? (newSwCnt == 1 ? 40 : 65) : 100))
+
+// ============================ M5 BOS Detection ============================
+// Pull each needed M5 value separately — more reliable than function-based approach
+m5CloseVal  = request.security(syminfo.tickerid, htfResM5, close,                          lookahead=barmerge.lookahead_off)
+m5RangeHigh = request.security(syminfo.tickerid, htfResM5, ta.highest(high[1], lookbackM5), lookahead=barmerge.lookahead_off)
+m5RangeLow  = request.security(syminfo.tickerid, htfResM5, ta.lowest(low[1],   lookbackM5), lookahead=barmerge.lookahead_off)
+
+// crossover/crossunder computed in outer scope on the M5-derived series
+m5BullBOS = ta.crossover(m5CloseVal,  m5RangeHigh)
+m5BearBOS = ta.crossunder(m5CloseVal, m5RangeLow)
+
+var float[] bullBosPrice = array.new_float(0)
+var line[]  bullBosLine  = array.new_line(0)
+var float[] bearBosPrice = array.new_float(0)
+var line[]  bearBosLine  = array.new_line(0)
+
+// Delete BOS levels that lost validity.
+// Bullish BOS loses validity when M5 closes back below the broken high.
+// Bearish BOS loses validity when M5 closes back above the broken low.
+if array.size(bullBosPrice) > 0
+    for i = array.size(bullBosPrice) - 1 to 0
+        if m5CloseVal < array.get(bullBosPrice, i)
+            line.delete(array.get(bullBosLine, i))
+            array.remove(bullBosPrice, i)
+            array.remove(bullBosLine, i)
+
+if array.size(bearBosPrice) > 0
+    for i = array.size(bearBosPrice) - 1 to 0
+        if m5CloseVal > array.get(bearBosPrice, i)
+            line.delete(array.get(bearBosLine, i))
+            array.remove(bearBosPrice, i)
+            array.remove(bearBosLine, i)
+
+// Register BULLISH BOS (aqua dotted) with $5 proximity merge
+if m5BullBOS and showBOS
+    lvl = m5RangeHigh
+    if array.size(bullBosPrice) > 0
+        for i = array.size(bullBosPrice) - 1 to 0
+            if math.abs(lvl - array.get(bullBosPrice, i)) <= bosThresh
+                line.delete(array.get(bullBosLine, i))
+                array.remove(bullBosPrice, i)
+                array.remove(bullBosLine, i)
+    array.push(bullBosPrice, lvl)
+    array.push(bullBosLine, line.new(bar_index, lvl, bar_index + 1, lvl,
+                 extend=extend.right, color=color.new(color.aqua, 0),
+                 width=2, style=line.style_dotted))
+    if array.size(bullBosPrice) > maxBosLines
+        array.shift(bullBosPrice)
+        line.delete(array.shift(bullBosLine))
+
+// Register BEARISH BOS (orange dotted) with $5 proximity merge
+if m5BearBOS and showBOS
+    lvl = m5RangeLow
+    if array.size(bearBosPrice) > 0
+        for i = array.size(bearBosPrice) - 1 to 0
+            if math.abs(lvl - array.get(bearBosPrice, i)) <= bosThresh
+                line.delete(array.get(bearBosLine, i))
+                array.remove(bearBosPrice, i)
+                array.remove(bearBosLine, i)
+    array.push(bearBosPrice, lvl)
+    array.push(bearBosLine, line.new(bar_index, lvl, bar_index + 1, lvl,
+                 extend=extend.right, color=color.new(color.orange, 0),
+                 width=2, style=line.style_dotted))
+    if array.size(bearBosPrice) > maxBosLines
+        array.shift(bearBosPrice)
+        line.delete(array.shift(bearBosLine))
+
+
+trendText  = h1Trend == 1 ? "UPTREND (H1)" : h1Trend == -1 ? "DOWNTREND (H1)" : "RANGE / UNCLEAR (H1)"
+trendColor = h1Trend == 1 ? color.new(color.green, 0) : h1Trend == -1 ? color.new(color.red, 0) : color.new(color.gray, 0)
+bgColorVal = h1Trend == 1 ? color.new(color.green, 92) : h1Trend == -1 ? color.new(color.red, 92) : color.new(color.gray, 95)
+bgcolor(showBg ? bgColorVal : na)
+
+var label trendLabel = na
+if showLabel and barstate.islast
+    label.delete(trendLabel)
+    trendLabel := label.new(bar_index, high, trendText, style=label.style_label_down, color=trendColor, textcolor=color.white, size=size.normal)
+
+plot(showMaxMin ? h1Max : na, "H1 Swing High (Max)", color=color.new(color.aqua, 0), style=plot.style_stepline, linewidth=2)
+plot(showMaxMin ? h1Min : na, "H1 Swing Low (Min)", color=color.new(color.orange, 0), style=plot.style_stepline, linewidth=2)

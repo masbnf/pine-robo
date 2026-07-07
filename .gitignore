@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+logs/
+trades.csv
+*.zip
+data/*.csv
+.venv/
+pine_ob_bot_data/

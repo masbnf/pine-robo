@@ -1,0 +1,409 @@
+//@version=5
+// =============================================================================
+//  SMC / MTF XAUUSD  —  TradingView port of the Python bot
+//  Run this on an M5 chart of XAUUSD. M15 bias is pulled via request.security.
+//
+//  Sequence (mirrors STRATEGY.md / strategy/mtf_strategy.py):
+//    1  M15 BOS (bias)                + extension filter
+//    1b H1 macro trend gate           (resampled via request.security on H1 TF)
+//    1c M15 EMA trend gate            (optional, off by default)
+//    2  M15 liquidity sweep           (SSL for longs / BSL for shorts)
+//    3  M15 order block -> zone
+//    3b zone tap -> "arm" the zone, wait up to N M5 bars
+//    4  M5 CHoCH inside the armed window  (the trigger)
+//    4b M5 RSI confirmation           (optional, off by default)
+//    4c quality SCORE gate            (0-10 pts across H1/BOS/sweep/CHoCH quality)
+//    5  enter at MARKET on the CHoCH break; SL below/above M5 swing (ATR-capped)
+//    6  TP = next M15 liquidity (>= min_rr away), else fixed-RR fallback
+//
+//  KNOWN DIFFERENCES vs the Python engine (Pine is single-pass / bar-by-bar):
+//   - Order block = last opposite-colour M15 candle captured at the BOS bar
+//     (a close approximation of the Python pre-impulse search window).
+//   - Liquidity sweep is detected on the latest M15 swing, not a rolling window.
+//   - TP "liquidity" target = last opposing M15 swing level; otherwise fixed RR.
+//   - Per-zone re-entry cap is approximated by a simple cooldown + pyramiding.
+//   - H1 trend gate: Pine can request the H1 series natively, so unlike the
+//     Python bot (which resamples H1 from the M15 window) this just pulls H1
+//     bars directly via request.security — functionally equivalent result.
+//   - CHoCH freshness: Pine's chochUp/chochDn only fires on the exact cross
+//     bar, so "choch_fresh" is always 0 here (always scores full marks on
+//     both freshness thresholds) — there's no Pine equivalent of the Python
+//     "armed and waiting several bars for a CHoCH" staleness case.
+//   - Costs: set commission/slippage in the strategy() settings to taste.
+//  The signal LOGIC (BOS, sweep, zone, arm, CHoCH, SL/TP, score rules) matches the bot.
+// =============================================================================
+strategy("SMC MTF XAUUSD", overlay=true, pyramiding=3,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=5,
+     initial_capital=1000, commission_type=strategy.commission.cash_per_order,
+     commission_value=0.0, slippage=10, calc_on_every_tick=false,
+     max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ----------------------------------------------------------------------------
+// INPUTS  (mirror config/settings.py)
+// ----------------------------------------------------------------------------
+gHTF   = "M15 — bias & zones"
+htfTF        = input.timeframe("15", "HTF timeframe", group=gHTF)
+htfSwingL    = input.int(2, "HTF swing left",  minval=1, group=gHTF)
+htfSwingR    = input.int(2, "HTF swing right", minval=1, group=gHTF)
+notExtATR    = input.float(2.5, "Not-extended x ATR (0=off)", group=gHTF)
+atrPeriod    = input.int(14, "ATR period", group=gHTF)
+requireSweep = input.bool(true, "Require liquidity sweep", group=gHTF)
+
+gH1 = "H1 macro trend gate (STEP 1b)"
+h1On             = input.bool(true, "Enable H1 trend gate", group=gH1)
+h1TF             = input.timeframe("60", "H1 timeframe", group=gH1)
+h1SwingL         = input.int(2, "H1 swing left",  minval=1, group=gH1)
+h1SwingR         = input.int(2, "H1 swing right", minval=1, group=gH1)
+h1BlockOnlyClear = input.bool(true, "Allow trade when H1 neutral (no BOS)", group=gH1)
+h1FreshBars      = input.int(8, "H1 BOS counts as fresh within N H1 bars", group=gH1)
+
+gEMA = "EMA trend gate (optional)"
+emaOn     = input.bool(false, "Enable EMA trend filter", group=gEMA)
+emaPeriod = input.int(200, "EMA period (HTF)", group=gEMA)
+
+gLTF = "M5 — trigger & execution"
+ltfSwingL  = input.int(2, "M5 swing left",  minval=1, group=gLTF)
+ltfSwingR  = input.int(2, "M5 swing right", minval=1, group=gLTF)
+zoneArmBars= input.int(200, "Zone armed for N M5 bars", group=gLTF)
+zoneTolATR = input.float(0.0, "Zone tap tolerance x ATR", group=gLTF)
+
+gRSI = "RSI confirmation (optional)"
+rsiOn      = input.bool(false, "Enable RSI confirmation", group=gRSI)
+rsiPeriod  = input.int(14, "RSI period", group=gRSI)
+rsiOS      = input.int(40, "Oversold (buy)", group=gRSI)
+rsiOB      = input.int(60, "Overbought (sell)", group=gRSI)
+rsiTurnLB  = input.int(5, "RSI extreme within N bars", group=gRSI)
+
+gSCORE = "Quality scoring gate (STEP 4c, 0-10 pts)"
+scoreOn         = input.bool(true, "Enable scoring gate", group=gSCORE)
+minScore        = input.int(5, "Min score to allow entry (5≈73% pass)", group=gSCORE)
+bosExcessWeak   = input.float(0.35, "BOS excess weak (xATR, p25)", group=gSCORE)
+bosExcessStrong = input.float(0.87, "BOS excess strong (xATR, p50)", group=gSCORE)
+bosBodyMin      = input.float(0.57, "BOS body min (xATR, p50)", group=gSCORE)
+sweepDepthMin   = input.float(0.13, "Sweep depth min (xATR, p25)", group=gSCORE)
+sweepSpeedMax   = input.int(8, "Sweep speed max (M15 bars, p50)", group=gSCORE)
+chochFreshGood  = input.int(10, "CHoCH fresh good (M5 bars)", group=gSCORE)
+chochFreshGreat = input.int(5, "CHoCH fresh great (M5 bars)", group=gSCORE)
+chochBodyMin    = input.float(0.30, "CHoCH body min (xATR)", group=gSCORE)
+
+gRISK = "Risk & exits"
+minRR        = input.float(1.5, "Min reward:risk", group=gRISK)
+slBufPts     = input.int(20, "SL buffer (points)", group=gRISK)
+slCapMult    = input.float(1.5, "SL cap x ATR", group=gRISK)
+fixedRR      = input.float(2.0, "Fixed-RR fallback", group=gRISK)
+riskMult     = input.float(1.0, "TEST risk_mult (1=off)", group=gRISK)
+maxOpen      = input.int(3, "Max open positions", minval=1, group=gRISK)
+cooldownBars = input.int(3, "Cooldown bars after a close", group=gRISK)
+point        = input.float(0.01, "Point size", group=gRISK)
+
+// ----------------------------------------------------------------------------
+// HTF (M15) CALCULATIONS  — computed in the M15 context, returned to M5
+// ----------------------------------------------------------------------------
+htf_calc() =>
+    ph = ta.pivothigh(htfSwingL, htfSwingR)
+    pl = ta.pivotlow(htfSwingL, htfSwingR)
+    var float lastPH = na
+    var float lastPL = na
+    var int   lastPHBar = na
+    var int   lastPLBar = na
+    // track last opposite-colour candle range (for the order block)
+    var float lastBearTop = na
+    var float lastBearBot = na
+    var float lastBullTop = na
+    var float lastBullBot = na
+    if close < open
+        lastBearTop := high
+        lastBearBot := low
+    if close > open
+        lastBullTop := high
+        lastBullBot := low
+    if not na(ph)
+        lastPH := ph
+        lastPHBar := bar_index - htfSwingR
+    if not na(pl)
+        lastPL := pl
+        lastPLBar := bar_index - htfSwingR
+    bullBOS = not na(lastPH) and ta.crossover(close, lastPH)
+    bearBOS = not na(lastPL) and ta.crossunder(close, lastPL)
+    atr15now = ta.atr(atrPeriod)
+    // bias + zone snapshots at the BOS bar
+    var int   bias = 0
+    var float demTop = na
+    var float demBot = na
+    var float supTop = na
+    var float supBot = na
+    var float bosOrigin = na
+    var float bosExcess = na   // |close - broken swing| / ATR  (score dim)
+    var float bosBody   = na   // |close - open| / ATR           (score dim)
+    if bullBOS
+        bias := 1
+        demTop := lastBearTop
+        demBot := lastBearBot
+        bosOrigin := close
+        bosExcess := atr15now > 0 ? math.abs(close - lastPH) / atr15now : 0.0
+        bosBody   := atr15now > 0 ? math.abs(close - open)  / atr15now : 0.0
+    if bearBOS
+        bias := -1
+        supTop := lastBullTop
+        supBot := lastBullBot
+        bosOrigin := close
+        bosExcess := atr15now > 0 ? math.abs(close - lastPL) / atr15now : 0.0
+        bosBody   := atr15now > 0 ? math.abs(close - open)  / atr15now : 0.0
+    atr15 = atr15now
+    ema15 = ta.ema(close, emaPeriod)
+    // liquidity sweep on the latest swing
+    sslSwept = not na(lastPL) and low < lastPL and close > lastPL
+    bslSwept = not na(lastPH) and high > lastPH and close < lastPH
+    // sweep depth / speed (score dims): depth = spike past the pool / ATR,
+    // speed = M15 bars from the swing pivot to the close-back bar
+    var float sslDepth = na
+    var int   sslSpeed = na
+    var float bslDepth = na
+    var int   bslSpeed = na
+    if sslSwept
+        sslDepth := atr15now > 0 ? math.abs(lastPL - low) / atr15now : 0.0
+        sslSpeed := na(lastPLBar) ? 99 : bar_index - lastPLBar
+    if bslSwept
+        bslDepth := atr15now > 0 ? math.abs(high - lastPH) / atr15now : 0.0
+        bslSpeed := na(lastPHBar) ? 99 : bar_index - lastPHBar
+    [bias, demTop, demBot, supTop, supBot, bosOrigin, atr15, ema15, sslSwept, bslSwept, lastPH, lastPL,
+     bosExcess, bosBody, sslDepth, sslSpeed, bslDepth, bslSpeed]
+
+[bias, demTop, demBot, supTop, supBot, bosOrigin, atr15, ema15, sslSwept, bslSwept, htfPH, htfPL,
+ bosExcess, bosBody, sslDepth, sslSpeed, bslDepth, bslSpeed] =
+     request.security(syminfo.tickerid, htfTF, htf_calc(), lookahead=barmerge.lookahead_off)
+
+// keep the most recent sweep "live" for a while (mirror the rolling sweep window)
+var int lastSslBar = na
+var int lastBslBar = na
+if sslSwept
+    lastSslBar := bar_index
+if bslSwept
+    lastBslBar := bar_index
+sweepWindow = zoneArmBars
+sslActive = not na(lastSslBar) and (bar_index - lastSslBar) <= sweepWindow
+bslActive = not na(lastBslBar) and (bar_index - lastBslBar) <= sweepWindow
+
+// hold the sweep's score metrics for as long as the sweep itself stays "active"
+var float sslDepthHeld = na
+var int   sslSpeedHeld = na
+var float bslDepthHeld = na
+var int   bslSpeedHeld = na
+if sslSwept
+    sslDepthHeld := sslDepth
+    sslSpeedHeld := sslSpeed
+if bslSwept
+    bslDepthHeld := bslDepth
+    bslSpeedHeld := bslSpeed
+
+// ----------------------------------------------------------------------------
+// H1 MACRO TREND GATE  — pulled directly from the H1 series (STEP 1b)
+// ----------------------------------------------------------------------------
+h1_calc() =>
+    ph1 = ta.pivothigh(h1SwingL, h1SwingR)
+    pl1 = ta.pivotlow(h1SwingL, h1SwingR)
+    var float lastPH1 = na
+    var float lastPL1 = na
+    if not na(ph1)
+        lastPH1 := ph1
+    if not na(pl1)
+        lastPL1 := pl1
+    bullBOS1 = not na(lastPH1) and ta.crossover(close, lastPH1)
+    bearBOS1 = not na(lastPL1) and ta.crossunder(close, lastPL1)
+    var int h1Bias    = 0
+    var int h1BiasBar = na
+    if bullBOS1
+        h1Bias := 1
+        h1BiasBar := bar_index
+    if bearBOS1
+        h1Bias := -1
+        h1BiasBar := bar_index
+    h1FreshCount = na(h1BiasBar) ? 999 : bar_index - h1BiasBar
+    [h1Bias, h1FreshCount]
+
+[h1Bias, h1FreshCount] = request.security(syminfo.tickerid, h1TF, h1_calc(), lookahead=barmerge.lookahead_off)
+
+// allowed when: (H1 neutral OR H1 agrees) AND (block_only_clear OR H1 is not neutral)
+h1GateLong  = not h1On or ((h1Bias == 0 or h1Bias == 1)  and (h1BlockOnlyClear or h1Bias != 0))
+h1GateShort = not h1On or ((h1Bias == 0 or h1Bias == -1) and (h1BlockOnlyClear or h1Bias != 0))
+
+h1AlignedLong  = h1On and h1Bias == 1
+h1AlignedShort = h1On and h1Bias == -1
+h1FreshOkLong  = h1AlignedLong  and h1FreshCount <= h1FreshBars
+h1FreshOkShort = h1AlignedShort and h1FreshCount <= h1FreshBars
+
+// ----------------------------------------------------------------------------
+// M5 STRUCTURE — CHoCH trigger
+// ----------------------------------------------------------------------------
+phM5 = ta.pivothigh(ltfSwingL, ltfSwingR)
+plM5 = ta.pivotlow(ltfSwingL, ltfSwingR)
+var float lastPHm5 = na
+var float lastPLm5 = na
+if not na(phM5)
+    lastPHm5 := phM5
+if not na(plM5)
+    lastPLm5 := plM5
+chochUp = not na(lastPHm5) and ta.crossover(close, lastPHm5)
+chochDn = not na(lastPLm5) and ta.crossunder(close, lastPLm5)
+
+atrM5 = ta.atr(atrPeriod)
+rsiM5 = ta.rsi(close, rsiPeriod)
+
+// CHoCH quality score dims: body of the breaking M5 candle / ATR.
+// NOTE: chochUp/chochDn only ever fire on the exact cross bar in Pine, so
+// "freshness" here is structurally always 0 (always passes both thresholds) —
+// see the file header for why this differs from the Python bot.
+chochBodyM5  = atrM5 > 0 ? math.abs(close - open) / atrM5 : 0.0
+chochFreshM5 = 0
+
+// ----------------------------------------------------------------------------
+// STEP 1 extension + 1c EMA gate
+// ----------------------------------------------------------------------------
+notExtendedLong  = notExtATR == 0 or atr15 == 0 or math.abs(close - bosOrigin) <= notExtATR * atr15
+notExtendedShort = notExtendedLong
+emaOkLong  = not emaOn or close > ema15
+emaOkShort = not emaOn or close < ema15
+
+// ----------------------------------------------------------------------------
+// STEP 3b — zone tap -> arm (state machine)
+// ----------------------------------------------------------------------------
+tol = zoneTolATR * atr15
+inDemand = bias == 1 and not na(demTop) and close <= demTop + tol and close >= demBot - tol
+inSupply = bias == -1 and not na(supTop) and close <= supTop + tol and close >= supBot - tol
+
+var bool armedLong = false
+var int  armedBarLong = na
+var bool armedShort = false
+var int  armedBarShort = na
+
+if inDemand
+    armedLong := true
+    armedBarLong := bar_index
+if armedLong and (na(armedBarLong) or bar_index - armedBarLong > zoneArmBars)
+    armedLong := false
+if inSupply
+    armedShort := true
+    armedBarShort := bar_index
+if armedShort and (na(armedBarShort) or bar_index - armedBarShort > zoneArmBars)
+    armedShort := false
+
+// ----------------------------------------------------------------------------
+// STEP 4b — RSI confirmation
+// ----------------------------------------------------------------------------
+rsiOkLong  = not rsiOn or (ta.lowest(rsiM5, rsiTurnLB) <= rsiOS and rsiM5 > rsiM5[1])
+rsiOkShort = not rsiOn or (ta.highest(rsiM5, rsiTurnLB) >= rsiOB and rsiM5 < rsiM5[1])
+
+// ----------------------------------------------------------------------------
+// STEP 4c — quality SCORE gate (0-10 pts: H1 0-2, BOS 0-3, Sweep 0-2, CHoCH 0-3)
+// ----------------------------------------------------------------------------
+scoreLong  = (h1AlignedLong  ? 1 : 0) + (h1FreshOkLong  ? 1 : 0) +
+             ((not na(bosExcess)      and bosExcess      > bosExcessWeak)   ? 1 : 0) +
+             ((not na(bosExcess)      and bosExcess      > bosExcessStrong) ? 1 : 0) +
+             ((not na(bosBody)        and bosBody        > bosBodyMin)      ? 1 : 0) +
+             ((not na(sslDepthHeld)   and sslDepthHeld   > sweepDepthMin)   ? 1 : 0) +
+             ((not na(sslSpeedHeld)   and sslSpeedHeld  <= sweepSpeedMax)   ? 1 : 0) +
+             (chochFreshM5 <= chochFreshGood  ? 1 : 0) +
+             (chochFreshM5 <= chochFreshGreat ? 1 : 0) +
+             (chochBodyM5 > chochBodyMin ? 1 : 0)
+
+scoreShort = (h1AlignedShort ? 1 : 0) + (h1FreshOkShort ? 1 : 0) +
+             ((not na(bosExcess)      and bosExcess      > bosExcessWeak)   ? 1 : 0) +
+             ((not na(bosExcess)      and bosExcess      > bosExcessStrong) ? 1 : 0) +
+             ((not na(bosBody)        and bosBody        > bosBodyMin)      ? 1 : 0) +
+             ((not na(bslDepthHeld)   and bslDepthHeld   > sweepDepthMin)   ? 1 : 0) +
+             ((not na(bslSpeedHeld)   and bslSpeedHeld  <= sweepSpeedMax)   ? 1 : 0) +
+             (chochFreshM5 <= chochFreshGood  ? 1 : 0) +
+             (chochFreshM5 <= chochFreshGreat ? 1 : 0) +
+             (chochBodyM5 > chochBodyMin ? 1 : 0)
+
+scoreGateLong  = not scoreOn or scoreLong  >= minScore
+scoreGateShort = not scoreOn or scoreShort >= minScore
+
+// ----------------------------------------------------------------------------
+// ENTRY CONDITIONS (full sequence)
+// ----------------------------------------------------------------------------
+sweepOkLong  = not requireSweep or sslActive
+sweepOkShort = not requireSweep or bslActive
+
+longSetup  = bias == 1  and notExtendedLong  and h1GateLong  and emaOkLong  and sweepOkLong  and armedLong  and chochUp and rsiOkLong  and scoreGateLong
+shortSetup = bias == -1 and notExtendedShort and h1GateShort and emaOkShort and sweepOkShort and armedShort and chochDn and rsiOkShort and scoreGateShort
+
+// cooldown after a position closes
+var int lastExitBar = na
+if strategy.closedtrades > strategy.closedtrades[1]
+    lastExitBar := bar_index
+coolingDown = not na(lastExitBar) and (bar_index - lastExitBar) < cooldownBars
+
+canOpen = strategy.opentrades < maxOpen and not coolingDown
+
+// ----------------------------------------------------------------------------
+// STEP 5 & 6 — SL / TP and order placement
+// ----------------------------------------------------------------------------
+buf = slBufPts * point
+
+// ---- LONG ----
+if longSetup and canOpen
+    entry = close
+    slRaw = math.min(nz(lastPLm5, low), entry) - buf
+    slCap = entry - slCapMult * atrM5
+    sl = math.max(slRaw, slCap)
+    sl := entry - riskMult * (entry - sl)            // TEST risk_mult widen
+    risk = entry - sl
+    if risk > 0
+        tpLiq = (not na(htfPH) and htfPH >= entry + minRR * risk) ? htfPH : entry + fixedRR * risk
+        tp = entry + riskMult * (tpLiq - entry)
+        rr = (tp - entry) / risk
+        if rr >= minRR
+            armedLong := false
+            strategy.entry("L", strategy.long)
+            strategy.exit("L-x", from_entry="L", stop=sl, limit=tp)
+            int x2 = bar_index + 24
+            box.new(bar_index, tp, x2, entry, border_color=color.new(color.green, 40), bgcolor=color.new(color.green, 85))   // reward
+            box.new(bar_index, entry, x2, sl, border_color=color.new(color.red, 40),   bgcolor=color.new(color.red, 85))     // risk
+            label.new(bar_index, tp, "LONG  R:R " + str.tostring(rr, "#.##") + "  Score " + str.tostring(scoreLong) + "/10" +
+                 "\nEntry " + str.tostring(entry, "#.##") + "\nTP " + str.tostring(tp, "#.##") + "\nSL " + str.tostring(sl, "#.##"),
+                 style=label.style_label_down, color=color.new(color.green, 30), textcolor=color.white, size=size.small)
+            alert("SMC MTF: LONG setup on " + syminfo.ticker + "  score " + str.tostring(scoreLong) + "/10",
+                 alert.freq_once_per_bar)
+
+// ---- SHORT ----
+if shortSetup and canOpen
+    entry = close
+    slRaw = math.max(nz(lastPHm5, high), entry) + buf
+    slCap = entry + slCapMult * atrM5
+    sl = math.min(slRaw, slCap)
+    sl := entry + riskMult * (sl - entry)            // TEST risk_mult widen
+    risk = sl - entry
+    if risk > 0
+        tpLiq = (not na(htfPL) and htfPL <= entry - minRR * risk) ? htfPL : entry - fixedRR * risk
+        tp = entry - riskMult * (entry - tpLiq)
+        rr = (entry - tp) / risk
+        if rr >= minRR
+            armedShort := false
+            strategy.entry("S", strategy.short)
+            strategy.exit("S-x", from_entry="S", stop=sl, limit=tp)
+            int x2 = bar_index + 24
+            box.new(bar_index, entry, x2, tp, border_color=color.new(color.green, 40), bgcolor=color.new(color.green, 85))   // reward
+            box.new(bar_index, sl, x2, entry, border_color=color.new(color.red, 40),   bgcolor=color.new(color.red, 85))     // risk
+            label.new(bar_index, tp, "SHORT  R:R " + str.tostring(rr, "#.##") + "  Score " + str.tostring(scoreShort) + "/10" +
+                 "\nEntry " + str.tostring(entry, "#.##") + "\nTP " + str.tostring(tp, "#.##") + "\nSL " + str.tostring(sl, "#.##"),
+                 style=label.style_label_up, color=color.new(color.red, 30), textcolor=color.white, size=size.small)
+            alert("SMC MTF: SHORT setup on " + syminfo.ticker + "  score " + str.tostring(scoreShort) + "/10",
+                 alert.freq_once_per_bar)
+
+// ----------------------------------------------------------------------------
+// VISUALS
+// ----------------------------------------------------------------------------
+plot(bias == 1 ? demTop : na, "Demand top", color.new(color.green, 0), style=plot.style_linebr)
+plot(bias == 1 ? demBot : na, "Demand bot", color.new(color.green, 0), style=plot.style_linebr)
+plot(bias == -1 ? supTop : na, "Supply top", color.new(color.red, 0), style=plot.style_linebr)
+plot(bias == -1 ? supBot : na, "Supply bot", color.new(color.red, 0), style=plot.style_linebr)
+plot(emaOn ? ema15 : na, "HTF EMA", color.new(color.orange, 0))
+bgcolor(h1On and h1Bias == 1 ? color.new(color.green, 92) : h1On and h1Bias == -1 ? color.new(color.red, 92) : na, title="H1 bias")
+plotshape(longSetup,  "Long setup",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.tiny)
+plotshape(shortSetup, "Short setup", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.tiny)
+
+// NOTE: alerts are fired inline via alert() inside the LONG/SHORT entry blocks
+// above — alertcondition() has no effect inside a strategy() script in Pine v5,
+// it only works in indicator() scripts. Use "Create Alert" -> condition "Any
+// alert() function call" on this script to catch them.

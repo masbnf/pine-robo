@@ -1,0 +1,98 @@
+{
+  "acknowledged_at_utc": "2026-07-07T00:42:42+00:00",
+  "files": {
+    "pine_ob_bot/__init__.py": {
+      "guide_section": "public-api",
+      "sha256": "7c3bde7969d7939187eb6753c272e8bd46a81d02270d148531fada4b11d61e0e"
+    },
+    "pine_ob_bot/app.py": {
+      "guide_section": "app-orchestration",
+      "sha256": "16b1f7da6b6e3592920bd611fc4003b5912a3809366b93f9dfb8024a88940c5f"
+    },
+    "pine_ob_bot/config.py": {
+      "guide_section": "configuration",
+      "sha256": "98c9b05a262e062c3e855a9972a23b4b70db20abc2fecf3d5aeb73352a66d24f"
+    },
+    "pine_ob_bot/dashboard_server.py": {
+      "guide_section": "dashboard",
+      "sha256": "5d66b8c12e236221e23075fed409cf7ca7e9608e32454633a576ff65260a9053"
+    },
+    "pine_ob_bot/demo_executor.py": {
+      "guide_section": "demo-execution",
+      "sha256": "65c20c4aaf67aeb64a27731421039691aa30128b6d5c98673a640b0c7f284d5d"
+    },
+    "pine_ob_bot/entry_pivot.py": {
+      "guide_section": "entry-pivot",
+      "sha256": "cc38ba51cb531f1fda0367d8e6c16cfd292db96fd5ca5a4470a211b870c074e8"
+    },
+    "pine_ob_bot/historical.py": {
+      "guide_section": "historical",
+      "sha256": "e4fe37e49cae03cc41f33334e0aefa1d3aff23743a66a250a1075c7015bca2c9"
+    },
+    "pine_ob_bot/liquidity_context.py": {
+      "guide_section": "liquidity-context",
+      "sha256": "308fc3a00fb99a44b5c9539875b39889e84d20bd0df8a89afa5d5b05db0ca7b3"
+    },
+    "pine_ob_bot/market_recorder.py": {
+      "guide_section": "market-capture",
+      "sha256": "9f0df0430a9805c3930ecea7198f9d6636c5c7eb082db268110d95f09d1aafea"
+    },
+    "pine_ob_bot/models.py": {
+      "guide_section": "models",
+      "sha256": "f7367a17b5e4b2325a3c3d4f7847dd1e7fff3e6cbfb29a178a5855ccf138c2a0"
+    },
+    "pine_ob_bot/mt5_feed.py": {
+      "guide_section": "mt5-feed",
+      "sha256": "a38eb7f1fc8c2ff15e90a64cc662fc2a2deb06289a30e0e680dea184ca93be53"
+    },
+    "pine_ob_bot/mtf_context.py": {
+      "guide_section": "m15-context",
+      "sha256": "e3d8441fa890de95091d9ad2087760c34ce975a0ca922e069a9c4fa633922b7c"
+    },
+    "pine_ob_bot/paper.py": {
+      "guide_section": "paper-execution-risk",
+      "sha256": "8471b59a965ec68d93dd0cfa1ce2e9ca05374655ef3380d4aa4743658aeaf569"
+    },
+    "pine_ob_bot/pine_engine.py": {
+      "guide_section": "pine-engine",
+      "sha256": "ebf35ff36404a91b090cd187d4a8cd2166aebc04d77a53b3ea3a0b75ade83aa4"
+    },
+    "pine_ob_bot/report_worker.py": {
+      "guide_section": "report-worker",
+      "sha256": "9006417efd8dd5f0a176ce6d9bb6dbcf3193229dc900c7620a224e5a7f133f81"
+    },
+    "pine_ob_bot/reporting.py": {
+      "guide_section": "reporting",
+      "sha256": "ea53aba5e49ce079de9fec8ea96f4df3d2c2b13aaaf8588997e97c5b107bc34f"
+    },
+    "pine_ob_bot/storage.py": {
+      "guide_section": "persistence",
+      "sha256": "4788469dd0c0fc255d909de4b30b7d0c95dcf8fda53fbb0b83959c8db06f4199"
+    },
+    "pine_ob_bot/structure_context.py": {
+      "guide_section": "structure-context",
+      "sha256": "e8f98b40d95ebe1faa345f0d946f971937dfda1b907af9f600bd3dc983b73d58"
+    },
+    "pine_ob_bot/tick_historical.py": {
+      "guide_section": "tick-historical",
+      "sha256": "90c2456ad5fabc5f95ab7995d2549c5e626fd400e145ee3923a92e34cdb257e9"
+    },
+    "run_pine_ob_paper.py": {
+      "guide_section": "runner-cli",
+      "sha256": "eef4b6968e94d7eba8f783e12199cb0b493a6a038a56cbfedc1a3f903de877d2"
+    },
+    "tools/fetch_mt5_ticks.py": {
+      "guide_section": "tick-download",
+      "sha256": "531f8b0b85d8701d2c5d722fab1e5ddc572e310a8bfe731c21f428d94c4dd4a0"
+    },
+    "tools/run_tick_backtest.py": {
+      "guide_section": "tick-backtest-cli",
+      "sha256": "88a3fa2925c13a224f1721f68a4bd76f7dcbf4fef10a1b4c95c803b826170423"
+    },
+    "tools/run_tick_risk_comparison.py": {
+      "guide_section": "tick-risk-comparison",
+      "sha256": "01d240f5893dbcc4113a478d7d943a8f89c4282c964091daad685473f36370fd"
+    }
+  },
+  "guide": "docs/ROBOT_TECHNICAL_GUIDE.md"
+}
