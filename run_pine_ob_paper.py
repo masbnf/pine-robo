@@ -76,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-mode", choices=("fixed_rr", "m5_liquidity_min_rr"),
                         default="fixed_rr",
                         help="fixed RR or nearest active M5 liquidity with RR as minimum")
+    parser.add_argument("--breakeven-at-r", type=float, default=None, metavar="R",
+                        help="move SL to entry once, without offset, when the trade's "
+                             "real MFE reaches this many R of initial risk; the stop "
+                             "never moves backward (default: disabled)")
     parser.add_argument("--max-positions", type=int, default=1,
                         help="maximum simultaneous paper positions (default: 1)")
     parser.add_argument("--liquidity-risk-sizing", action="store_true",
@@ -169,6 +173,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int, db_path: Pat
         entry_pivot_right=args.entry_pivot_right,
 
         target_mode=args.target_mode,
+        breakeven_trigger_r=args.breakeven_at_r,
         max_open_positions=args.max_positions,
 
         liquidity_risk_sizing_enabled=args.liquidity_risk_sizing,

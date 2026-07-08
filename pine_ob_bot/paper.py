@@ -70,6 +70,10 @@ class PaperBroker:
         # backtest runners always enforce it identically.
         self.entry_pivot_gate_active: bool = False
         self.pivot_events: list[dict] = []
+        # Drained like rejected_sizing/trend_events: one entry per position
+        # whose stop was just moved to breakeven, so the caller can log,
+        # persist and (in Demo mode) mirror the SL modification exactly once.
+        self.breakeven_events: list[dict] = []
         self.stats = {"setups_seen": 0, "rejected_break_kind": 0,
                       "rejected_weak_choch": 0,
                       "early_touch_blocked": 0, "lifecycle_accepted": 0,
@@ -82,6 +86,7 @@ class PaperBroker:
                       "cancelled_trend_change": 0,
                       "cancelled_trend_neutral": 0,
                       "rejected_no_entry_pivot": 0,
+                      "breakeven_armed": 0,
                       "pivot_highs_confirmed": 0,
                       "pivot_lows_confirmed": 0,
                       "buy_setups_created": 0,
@@ -280,6 +285,7 @@ class PaperBroker:
             for p in list(self.positions):
                 px = tick.bid if p.direction == "bull" else tick.ask
                 self._track_excursion(p, px, px)
+                self._apply_breakeven(p, tick.time)
                 stop = px <= p.stop if p.direction == "bull" else px >= p.stop
                 target = px >= p.target if p.direction == "bull" else px <= p.target
                 if stop:
@@ -380,6 +386,10 @@ class PaperBroker:
                 if _is_after(p.opened_time, candle.time):
                     continue
                 self._track_excursion(p, candle.low, candle.high)
+                # Intrabar ordering is unknown on OHLC: if one candle both
+                # reaches the trigger and returns to entry, this counts as a
+                # breakeven exit (the conservative reading, never a held win).
+                self._apply_breakeven(p, candle.time)
                 hit_sl = candle.low <= p.stop if p.direction == "bull" else candle.high + spread >= p.stop
                 hit_tp = candle.high >= p.target if p.direction == "bull" else candle.low + spread <= p.target
                 if hit_sl:
@@ -417,6 +427,7 @@ class PaperBroker:
                 continue
             slots -= 1
             self._track_excursion(p, candle.low, candle.high)
+            self._apply_breakeven(p, candle.time)
             hit_sl = candle.low <= p.stop if p.direction == "bull" else candle.high + spread >= p.stop
             hit_tp = candle.high >= p.target if p.direction == "bull" else candle.low + spread <= p.target
             if hit_sl:
@@ -694,6 +705,7 @@ class PaperBroker:
                                   "entry_age_top_quartile": age_top_quartile,
                                   "entry_execution_source": execution_source,
                                   "entry_execution_spread": execution_spread,
+                                  "original_stop": stop,
                                   "execution_state": ("demo_confirmation_pending"
                                                       if self.cfg.demo_orders_enabled
                                                       else "paper_active"),
@@ -745,6 +757,37 @@ class PaperBroker:
                     self.stats["lifecycle_armed"] += 1
             meta["lifecycle_last_close"] = candle.close
 
+    def _apply_breakeven(self, p: PaperPosition, when: str) -> None:
+        """Move the stop to entry exactly once when real MFE reaches the
+        configured R trigger (fraction of the initial entry-to-stop distance).
+
+        The stop never moves backward and no offset is applied. Living inside
+        the shared broker -- called from every excursion-tracking site in
+        process_tick and process_candle -- is what keeps Paper live, Demo
+        mirroring and both backtest runners on one identical implementation.
+        """
+        trigger = self.cfg.breakeven_trigger_r
+        if trigger is None or p.meta.get("breakeven_armed"):
+            return
+        original_stop = float(p.meta.get("original_stop", p.stop))
+        distance = abs(p.entry - original_stop)
+        if distance <= 0 or p.max_favorable < trigger * distance:
+            return
+        improves = p.entry > p.stop if p.direction == "bull" else p.entry < p.stop
+        p.meta.update({"breakeven_armed": True,
+                       "breakeven_armed_time": when,
+                       "breakeven_trigger_r": trigger})
+        if improves:
+            p.stop = p.entry
+        self.stats["breakeven_armed"] = self.stats.get("breakeven_armed", 0) + 1
+        self.breakeven_events.append({
+            "event_type": "breakeven_armed", "position_id": p.id,
+            "order_id": p.order_id, "direction": p.direction,
+            "entry": p.entry, "original_stop": original_stop,
+            "new_stop": p.stop, "trigger_r": trigger,
+            "max_favorable": p.max_favorable, "time": when,
+        })
+
     def _track_excursion(self, p: PaperPosition, low: float, high: float) -> None:
         adverse = p.entry - low if p.direction == "bull" else high - p.entry
         favorable = high - p.entry if p.direction == "bull" else p.entry - low
@@ -757,7 +800,11 @@ class PaperBroker:
         move = price - p.entry if p.direction == "bull" else p.entry - price
         pnl = move / self.spec.tick_size * self.spec.tick_value * p.volume
         r = pnl / p.risk_money if p.risk_money else 0.0
-        initial_distance = abs(p.entry - p.stop)
+        # MAE/MFE stay in units of the risk taken at entry -- after a
+        # breakeven move, entry-to-current-stop would be zero.
+        original_stop = float(p.meta.get("original_stop", p.stop))
+        initial_distance = abs(p.entry - original_stop)
+        breakeven_armed = bool(p.meta.get("breakeven_armed"))
         trade = Trade(p.id, p.direction, p.entry, p.stop, p.target, price, p.volume,
                       p.risk_money, pnl, r, p.opened_time, when,
                       "win" if pnl > 0 else "loss", p.order_id,
@@ -766,6 +813,11 @@ class PaperBroker:
                       p.max_favorable / initial_distance if initial_distance else 0.0,
                       {**p.meta, "exit_execution_source": execution_source,
                        "exit_execution_spread": execution_spread,
+                       "breakeven_armed": breakeven_armed,
+                       "breakeven_armed_time": p.meta.get("breakeven_armed_time"),
+                       "breakeven_exit": breakeven_armed and result == "loss",
+                       "original_stop": original_stop,
+                       "final_stop": p.stop,
                        "execution_state": ("demo_exit_confirmation_pending"
                                            if self.cfg.demo_orders_enabled
                                            else "paper_closed")})
@@ -836,6 +888,7 @@ class PaperBroker:
         self.stats.setdefault("cancelled_trend_change", 0)
         self.stats.setdefault("cancelled_trend_neutral", 0)
         self.stats.setdefault("rejected_no_entry_pivot", 0)
+        self.stats.setdefault("breakeven_armed", 0)
         self.stats.setdefault("pivot_highs_confirmed", 0)
         self.stats.setdefault("pivot_lows_confirmed", 0)
         self.stats.setdefault("buy_setups_created", 0)
@@ -843,6 +896,7 @@ class PaperBroker:
         self.rejected_sizing = []
         self.trend_events = []
         self.pivot_events = []
+        self.breakeven_events = []
         self.current_m5_trend = TrendDirection(data.get("current_m5_trend", TrendDirection.NEUTRAL.value))
         self.entry_pivot_gate_active = data.get("entry_pivot_gate_active", False)
         self.last_pivot_high = EntryPivot(**data["last_pivot_high"]) if data.get("last_pivot_high") else None

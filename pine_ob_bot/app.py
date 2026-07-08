@@ -241,6 +241,7 @@ class PaperApp:
         trades = self.broker.process_tick(tick)
         self._drain_rejected_sizing(tick.time)
         self._drain_trend_events(tick.time)
+        self._drain_breakeven_events(tick.time)
         after = {p.id for p in self.broker.positions}
         if before != after:
             for trade in trades:
@@ -341,6 +342,36 @@ class PaperApp:
                 kind, event.get("reason"), event.get("ob_id"), event.get("order_id"),
                 event.get("side"), event.get("current_m5_trend"), event.get("trend_at_creation"))
         self.broker.trend_events.clear()
+
+    def _drain_breakeven_events(self, when: str) -> None:
+        """Log and persist every stop just moved to breakeven; in Demo mode
+        also mirror the SL modification to MT5 exactly once per position."""
+        if not self.broker.breakeven_events:
+            return
+        for event in self.broker.breakeven_events:
+            self.store.record_event(event.get("time", when), "breakeven_armed", event)
+            self.log.info("BREAKEVEN ARMED id=%s side=%s entry=%s sl %s -> %s trigger=%sR",
+                          event.get("position_id"), event.get("direction"),
+                          event.get("entry"), event.get("original_stop"),
+                          event.get("new_stop"), event.get("trigger_r"))
+            position = next((item for item in self.broker.positions
+                             if item.id == event.get("position_id")), None)
+            if not (self.demo and position is not None and
+                    position.meta.get("demo_order_sent")):
+                continue
+            try:
+                result = self.demo.modify_stop(position, float(event["new_stop"]))
+                position.meta["demo_breakeven_status"] = result.get("status")
+                self.store.record_event(when, "demo_stop_modified", result)
+                self.log.info("DEMO SL MODIFY ticket=%s status=%s sl=%s",
+                              result.get("ticket"), result.get("status"), result.get("sl"))
+            except Exception as exc:
+                position.meta.update({"demo_breakeven_status": "error",
+                                      "demo_breakeven_error": str(exc)})
+                self.store.record_event(when, "demo_stop_modify_failed",
+                                        {"position_id": position.id, "error": str(exc)})
+                self.log.error("DEMO SL MODIFY FAILED: %s", exc)
+        self.broker.breakeven_events.clear()
 
     def _reconcile_demo_positions(self) -> None:
         if not self.demo:

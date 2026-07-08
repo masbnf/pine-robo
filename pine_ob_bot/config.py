@@ -28,6 +28,12 @@ class BotConfig:
     m15_atr_period: int = 200
     rr: float = 1.5
     target_mode: str = "fixed_rr"
+    # Move the SL to entry exactly once when the trade's real MFE reaches this
+    # many R (fractions of the initial entry-to-stop distance). None disables
+    # the behaviour. The stop never moves backward, and no offset is applied
+    # (a breakeven exit closes at entry, ~0 PnL). Shared by Paper live, Demo
+    # mirroring and both backtest runners via PaperBroker._apply_breakeven.
+    breakeven_trigger_r: float | None = None
     risk_fraction: float = 0.01
     liquidity_risk_sizing_enabled: bool = False
     choch_risk_sizing_enabled: bool = False
@@ -112,6 +118,8 @@ class BotConfig:
             raise ValueError("rr and risk_fraction must be positive")
         if self.target_mode not in {"fixed_rr", "m5_liquidity_min_rr"}:
             raise ValueError("invalid target_mode")
+        if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
+            raise ValueError("breakeven_trigger_r must be positive")
         if not 0 < self.base_risk_fraction <= 1 or not 0 < self.liquidity_risk_fraction <= 1:
             raise ValueError("adaptive risk fractions must be positive")
         if not 0 < self.choch_base_risk_fraction <= 1 or not 0 < self.choch_opposite_risk_fraction <= 1:

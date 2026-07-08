@@ -169,7 +169,8 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                    "m5_last_choch_alignment", "fill_m5_last_choch_direction",
                    "fill_m5_last_choch_alignment", "context_risk_score"])
     fields.extend(["target_source", "bos_directional_body",
-                   "bos_displacement_top_quartile", "entry_age_top_quartile"])
+                   "bos_displacement_top_quartile", "entry_age_top_quartile",
+                   "breakeven_armed", "breakeven_exit"])
     output = []
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -278,6 +279,8 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                               ("Exit execution source", "exit_execution_source"),
                               ("Demo order mirrored", "demo_order_sent"),
                               ("Target source", "target_source"),
+                              ("Breakeven armed", "breakeven_armed"),
+                              ("Breakeven exit", "breakeven_exit"),
                               ("BOS directional body", "bos_directional_body"),
                               ("Adaptive BOS displacement", "bos_displacement_top_quartile"),
                               ("Adaptive OB age", "entry_age_top_quartile"),
@@ -299,6 +302,8 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                             "m15_last_break_kind", "m15_break_age_bars", "m15_range_zone",
                             "context_risk_score", "risk tier", "bos_displacement_top_quartile",
                             "fill_m5_last_choch_alignment", "setup_m5_opposite_sweep",
+                            "breakeven_armed", "breakeven_exit",
+                            "original_stop", "final_stop",
                             "entry_execution_source", "entry_execution_spread",
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",
                             "demo_entry_slippage", "demo_close_price", "demo_exit_slippage"] if x in trades]
