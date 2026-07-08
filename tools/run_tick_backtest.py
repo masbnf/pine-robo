@@ -37,7 +37,10 @@ from pine_ob_bot.tick_historical import run_tick_historical
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--month", required=True, metavar="YYYY-MM")
+    parser.add_argument("--month", required=True, metavar="YYYY-MM|all",
+                        help="single month directory under --data-root, or 'all' to "
+                             "replay every month directory that actually contains "
+                             "tick files for --symbol, in chronological order")
     parser.add_argument("--symbol", default="XAUUSD")
     parser.add_argument("--data-root", type=Path,
                         default=Path("pine_ob_bot_data/historical_ticks"))
@@ -208,9 +211,28 @@ def main(argv=None) -> int:
     validate_fixed_risk_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
-    paths = sorted((args.data_root / args.month).glob(f"ticks_{args.symbol}_*.csv*"))
-    if not paths:
-        parser.error(f"no tick files found for {args.symbol} {args.month}")
+    if args.month.lower() == "all":
+        # Every month directory under --data-root that actually holds tick
+        # files for this symbol; directories without matching ticks (or plain
+        # files like coverage.json) are skipped. Filenames embed the date
+        # (ticks_SYMBOL_YYYYMMDD), so the final name sort is chronological
+        # across month boundaries and the replay runs as ONE continuous
+        # backtest: single warm-up, continuous equity and state.
+        paths = []
+        included = []
+        for directory in sorted(p for p in args.data_root.iterdir() if p.is_dir()):
+            found = sorted(directory.glob(f"ticks_{args.symbol}_*.csv*"))
+            if found:
+                paths.extend(found)
+                included.append(directory.name)
+        if not paths:
+            parser.error(f"no tick files found for {args.symbol} under {args.data_root}")
+        paths.sort(key=lambda p: p.name)
+        print(f"months included: {', '.join(included)} ({len(paths)} files)")
+    else:
+        paths = sorted((args.data_root / args.month).glob(f"ticks_{args.symbol}_*.csv*"))
+        if not paths:
+            parser.error(f"no tick files found for {args.symbol} {args.month}")
 
     cfg = build_config(args, trend_swing_length)
 
