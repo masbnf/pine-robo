@@ -1,11 +1,15 @@
 """sweep_reclaim confirmation on the tick execution path.
 
+The sweep is measured against the OB ENTRY edge, never the stop: a candle
+trading through the stop extreme is exactly the condition under which the OB
+engine invalidates the block on that same candle (cancel_ob then deactivates
+the order), so a stop-based sweep could never survive to the next tick.
+
 Live is tick-only for execution: a closed M5 candle confirms a pending
 sweep_reclaim order (PaperBroker.process_signal_candle) and the next live
 tick supplies the only executable fill. run_tick_historical() must drive the
-broker through the exact same entry point -- these tests cover both the
-broker-level behaviour and the tick runner's wiring, which the existing
-PaperBroker-only tests never exercised.
+broker through the exact same entry point -- these tests cover the broker
+behaviour, the stop-break cancellation, and the tick runner's wiring.
 
 Run with:  pytest pine_ob_bot/tests/test_sweep_reclaim_tick_runner.py -v
 """
@@ -48,16 +52,23 @@ def _sweep_broker(direction: str, entry: float, stop: float) -> tuple[PaperBroke
     return broker, order
 
 
-def test_signal_candle_confirms_buy_sweep_reclaim_and_next_tick_fills():
+def test_signal_candle_confirms_buy_entry_edge_sweep_and_next_tick_fills():
     broker, order = _sweep_broker("bull", entry=1.00, stop=0.90)
 
-    # The closed candle sweeps the stop (low 0.85 < 0.90) and reclaims the
-    # entry (close 1.02 > 1.00). No fill may happen here -- signal only.
-    broker.process_signal_candle(Candle(T(5), 0.95, 1.05, 0.85, 1.02), bar_index=1)
+    # Price enters the OB through the entry edge but never breaks the stop,
+    # and the candle closes back above the entry.
+    candle = Candle(T(5), 1.02, 1.04, 0.95, 1.01)
+    assert candle.low < order.entry
+    assert candle.low > order.stop  # the OB itself stays valid
+    assert candle.close > order.entry
+    broker.process_signal_candle(candle, bar_index=1)
 
-    assert order.meta.get("sweep_reclaim_confirmed") is True
+    assert order.meta["sweep_reclaim_confirmed"] is True
     assert abs(order.stop - (0.90 - BUFFER * ATR)) < 1e-12  # 0.88
     assert broker.positions == []  # closed candles never fill on the tick path
+    assert broker.stats["sweep_reclaim_checked"] == 1
+    assert broker.stats["sweep_reclaim_entry_swept"] == 1
+    assert broker.stats["sweep_reclaim_confirmed"] == 1
 
     # The next tick supplies the only executable fill price (Ask for a buy).
     broker.process_tick(Tick(T(6), 1.02, 1.021))
@@ -69,15 +80,21 @@ def test_signal_candle_confirms_buy_sweep_reclaim_and_next_tick_fills():
     assert abs(position.stop - 0.88) < 1e-12
     # Target is re-derived at fill from the buffered stop distance.
     assert abs(position.target - (1.021 + broker.cfg.rr * (1.021 - 0.88))) < 1e-9
+    assert broker.stats["sweep_reclaim_filled"] == 1
 
 
-def test_signal_candle_confirms_sell_sweep_reclaim_and_next_tick_fills():
+def test_signal_candle_confirms_sell_entry_edge_sweep_and_next_tick_fills():
     broker, order = _sweep_broker("bear", entry=1.00, stop=1.10)
 
-    # Sweep above the stop (high 1.15 > 1.10), reclaim below entry (0.98 < 1.00).
-    broker.process_signal_candle(Candle(T(5), 1.05, 1.15, 0.97, 0.98), bar_index=1)
+    # Price pushes above the entry edge without breaking the stop, then
+    # closes back below the entry.
+    candle = Candle(T(5), 0.98, 1.05, 0.96, 0.99)
+    assert candle.high > order.entry
+    assert candle.high < order.stop  # the OB itself stays valid
+    assert candle.close < order.entry
+    broker.process_signal_candle(candle, bar_index=1)
 
-    assert order.meta.get("sweep_reclaim_confirmed") is True
+    assert order.meta["sweep_reclaim_confirmed"] is True
     assert abs(order.stop - (1.10 + BUFFER * ATR)) < 1e-12  # 1.12
     assert broker.positions == []
 
@@ -90,18 +107,64 @@ def test_signal_candle_confirms_sell_sweep_reclaim_and_next_tick_fills():
     assert position.entry == 0.98
     assert abs(position.stop - 1.12) < 1e-12
     assert abs(position.target - (0.98 - broker.cfg.rr * (1.12 - 0.98))) < 1e-9
+    assert broker.stats["sweep_reclaim_filled"] == 1
 
 
-def test_unconfirmed_sweep_reclaim_candle_does_not_arm_or_fill():
+def test_no_entry_penetration_means_no_confirmation():
     broker, order = _sweep_broker("bull", entry=1.00, stop=0.90)
 
-    # Reclaims the entry but never sweeps the stop: not confirmed.
-    broker.process_signal_candle(Candle(T(5), 0.95, 1.05, 0.91, 1.02), bar_index=1)
+    # The candle never trades below the entry edge: no sweep, no confirmation.
+    broker.process_signal_candle(Candle(T(5), 1.02, 1.05, 1.005, 1.03), bar_index=1)
     assert order.meta.get("sweep_reclaim_confirmed") is None
     assert order.stop == 0.90  # untouched, no buffer applied
+    assert broker.stats["sweep_reclaim_checked"] == 1
+    assert broker.stats["sweep_reclaim_entry_swept"] == 0
 
-    broker.process_tick(Tick(T(6), 1.02, 1.03))
+    broker.process_tick(Tick(T(6), 1.02, 1.021))
     assert broker.positions == []  # unconfirmed orders never fill on ticks
+
+
+def test_sweep_without_reclaim_close_is_not_confirmed():
+    broker, order = _sweep_broker("bull", entry=1.00, stop=0.90)
+
+    # Penetrates the entry edge but closes back inside the OB: swept, not confirmed.
+    broker.process_signal_candle(Candle(T(5), 1.02, 1.03, 0.95, 0.99), bar_index=1)
+    assert order.meta.get("sweep_reclaim_confirmed") is None
+    assert broker.stats["sweep_reclaim_entry_swept"] == 1
+    assert broker.stats["sweep_reclaim_confirmed"] == 0
+
+
+def test_stop_break_cancels_the_order_instead_of_trading_it():
+    """Regression for the self-defeating stop-based sweep: a candle through
+    the stop extreme is the OB engine's invalidation condition, so the runner
+    cancels the order on the same close_bar -- the confirmation (if any) must
+    never survive into a tick fill."""
+    broker, order = _sweep_broker("bull", entry=1.00, stop=0.90)
+
+    # low < stop and close > entry: the exact pattern the old stop-based
+    # condition treated as a tradeable confirmation.
+    broker.process_signal_candle(Candle(T(5), 0.95, 1.04, 0.85, 1.02), bar_index=1)
+    # Same candle, same close_bar: the engine invalidates the swept OB.
+    broker.cancel_ob("ob-1")
+
+    assert order.active is False
+    assert order.lifecycle_state == "invalidated"
+    assert broker.stats["sweep_reclaim_invalidated"] == 1
+
+    broker.process_tick(Tick(T(6), 1.02, 1.021))
+    assert broker.positions == []
+    assert broker.stats["sweep_reclaim_filled"] == 0
+
+
+def test_confirmation_applies_the_buffer_only_once():
+    broker, order = _sweep_broker("bull", entry=1.00, stop=0.90)
+
+    broker.process_signal_candle(Candle(T(5), 1.02, 1.04, 0.95, 1.01), bar_index=1)
+    assert abs(order.stop - 0.88) < 1e-12
+    # A second qualifying candle must not re-confirm or re-buffer the stop.
+    broker.process_signal_candle(Candle(T(10), 1.02, 1.04, 0.95, 1.01), bar_index=2)
+    assert abs(order.stop - 0.88) < 1e-12
+    assert broker.stats["sweep_reclaim_confirmed"] == 1
 
 
 def test_run_tick_historical_drives_process_signal_candle(tmp_path, monkeypatch):
