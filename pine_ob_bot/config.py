@@ -61,6 +61,14 @@ class BotConfig:
     min_entry_wait_bars: int = 0
     entry_mode: str = "limit"
     sweep_reclaim_atr_buffer: float = 0.20
+    # Closed M5 bars the reclaim may lag the sweep in sweep_reclaim mode.
+    # 1 (default) = sweep and reclaim must happen on the SAME closed bar --
+    # the original logic, unchanged. N>1 is experimental (enable via the
+    # --sweep-reclaim-max-bars flag on the runners): a bar that wicks through
+    # the entry edge opens an N-bar window, and any bar inside it that closes
+    # back beyond the edge confirms; a deeper sweep restarts the window; OB
+    # invalidation still kills the order at any point.
+    sweep_reclaim_max_bars: int = 1
     # Move the stop to entry once open profit reaches this many R (e.g. 1.0).
     # None disables the breakeven move entirely. Read by
     # PaperBroker._apply_breakeven on every tick/candle that touches an open
@@ -79,7 +87,7 @@ class BotConfig:
     market_capture_dir: Path = Path("pine_ob_bot_data/market_capture")
     max_live_tick_age_seconds: float = 30.0
     entry_spread_guard_enabled: bool = True
-    max_entry_spread_atr_fraction: float = 0.15
+    max_entry_spread_atr_fraction: float = 0.10
     spread_median_window: int = 300
     spread_median_min_samples: int = 20
     spread_median_multiplier: float = 3.0
@@ -155,6 +163,8 @@ class BotConfig:
             raise ValueError("entry_mode must be 'limit' or 'sweep_reclaim'")
         if self.sweep_reclaim_atr_buffer < 0:
             raise ValueError("sweep_reclaim_atr_buffer cannot be negative")
+        if self.sweep_reclaim_max_bars < 1:
+            raise ValueError("sweep_reclaim_max_bars must be at least 1")
         if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
             raise ValueError("breakeven_trigger_r must be positive or None")
         if self.max_open_positions < 1:
@@ -186,12 +196,4 @@ class BotConfig:
 # body/decorator instead of via an in-body @property. `swing_length` is also
 # the InitVar constructor-kwarg name above; a same-named @property inside the
 # class body would be captured by @dataclass(slots=True) as that InitVar's
-# default (overwriting the real `None` default with the property object
-# itself, since dataclass reads the class namespace at decoration time --
-# i.e. after the whole class body, including the later @property statement,
-# has already executed). That silently corrupted every BotConfig() call built
-# with no explicit swing_length=, replacing trend_swing_length with a
-# <property object>. Attaching the property here, after BotConfig already
-# exists as a finished (slotted) class, avoids the collision entirely.
-BotConfig.swing_length = property(lambda self: self.trend_swing_length,
-                                  doc="Deprecated read-only alias for trend_swing_length.")
+# default (over

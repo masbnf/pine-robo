@@ -92,6 +92,10 @@ class PaperBroker:
                       "sweep_reclaim_confirmed": 0,
                       "sweep_reclaim_invalidated": 0,
                       "sweep_reclaim_filled": 0,
+                      "sweep_reclaim_window_expired": 0,
+                      "sweep_reclaim_lag0_confirms": 0,
+                      "sweep_reclaim_lag1_confirms": 0,
+                      "sweep_reclaim_lag2plus_confirms": 0,
                       "pivot_highs_confirmed": 0,
                       "pivot_lows_confirmed": 0,
                       "buy_setups_created": 0,
@@ -369,19 +373,7 @@ class PaperBroker:
             if bar_index - order.created_index < max(1, self.cfg.min_entry_wait_bars):
                 continue
             self.stats["sweep_reclaim_checked"] = self.stats.get("sweep_reclaim_checked", 0) + 1
-            # The sweep is measured against the OB ENTRY edge, never the stop:
-            # a candle trading through the stop extreme is the exact condition
-            # under which the OB engine invalidates the block on this same
-            # candle (cancel_ob then deactivates the order), so a stop-based
-            # sweep could never survive to the next tick's fill.
-            swept = (candle.low < order.entry if order.direction == "bull"
-                     else candle.high > order.entry)
-            if not swept:
-                continue
-            self.stats["sweep_reclaim_entry_swept"] = self.stats.get(
-                "sweep_reclaim_entry_swept", 0) + 1
-            reclaimed = (candle.close > order.entry if order.direction == "bull"
-                         else candle.close < order.entry)
+            reclaimed, lag = self._sweep_reclaim_window(order, candle, bar_index)
             if not reclaimed:
                 continue
             atr = order.meta.get("atr_at_formation") or 0.0
@@ -391,6 +383,7 @@ class PaperBroker:
             order.meta.update({"entry_mode": "sweep_reclaim",
                                "sweep_reclaim_atr_buffer": self.cfg.sweep_reclaim_atr_buffer,
                                "sweep_reclaim_confirmed": True,
+                               "sweep_reclaim_lag_bars": lag,
                                "reclaim_close": candle.close,
                                "reclaim_time": candle.time})
             self.stats["sweep_reclaim_confirmed"] = self.stats.get(
@@ -530,31 +523,70 @@ class PaperBroker:
         if math.isfinite(spread) and spread >= 0:
             self.recent_spreads.append(spread)
 
+    def _sweep_reclaim_window(self, order: PendingOrder, candle: Candle,
+                              bar_index: int) -> tuple[bool, int]:
+        """Shared sweep/reclaim state machine for both execution paths.
+
+        The sweep is measured against the OB ENTRY edge, never the stop: a
+        candle trading through the stop extreme is the exact condition under
+        which the OB engine invalidates the block on this same candle
+        (cancel_ob then deactivates the order), so a stop-based sweep could
+        never survive to a fill.
+
+        With sweep_reclaim_max_bars == 1 (the default) this is exactly the
+        original same-bar rule: a bar must wick through the entry edge AND
+        close back beyond it. With N > 1 (experimental, flag-gated), the sweep
+        bar opens a window of N closed bars; any bar inside it that closes
+        beyond the edge confirms, a deeper sweep restarts the window, and an
+        expired window resets the order to the not-swept state. Returns
+        (reclaim confirmed, closed bars between sweep and reclaim).
+        """
+        swept_now = (candle.low < order.entry if order.direction == "bull"
+                     else candle.high > order.entry)
+        sweep_index = order.meta.get("sweep_reclaim_sweep_index")
+        window = max(1, self.cfg.sweep_reclaim_max_bars)
+        if sweep_index is not None and bar_index - sweep_index >= window:
+            order.meta.pop("sweep_reclaim_sweep_index", None)
+            self.stats["sweep_reclaim_window_expired"] = self.stats.get(
+                "sweep_reclaim_window_expired", 0) + 1
+            sweep_index = None
+        if swept_now:
+            # Count sweep EPISODES: a deeper sweep inside an open window
+            # refreshes the deadline without re-counting.
+            if sweep_index is None:
+                self.stats["sweep_reclaim_entry_swept"] = self.stats.get(
+                    "sweep_reclaim_entry_swept", 0) + 1
+            sweep_index = bar_index
+            order.meta["sweep_reclaim_sweep_index"] = bar_index
+        if sweep_index is None:
+            return False, 0
+        reclaimed = (candle.close > order.entry if order.direction == "bull"
+                     else candle.close < order.entry)
+        if not reclaimed:
+            return False, 0
+        lag = bar_index - sweep_index
+        key = ("sweep_reclaim_lag0_confirms" if lag == 0 else
+               "sweep_reclaim_lag1_confirms" if lag == 1 else
+               "sweep_reclaim_lag2plus_confirms")
+        self.stats[key] = self.stats.get(key, 0) + 1
+        order.meta.pop("sweep_reclaim_sweep_index", None)
+        return True, lag
+
     def _try_sweep_reclaim(self, order: PendingOrder, candle: Candle,
                            bar_index: int, spread: float,
                            execution_source: str) -> bool:
-        """Enter only when one closed bar sweeps and reclaims the OB entry edge.
+        """Enter when a closed bar sweeps and then reclaims the OB entry edge.
 
-        Same definition as process_signal_candle: the sweep is measured against
-        the ENTRY edge, never the stop -- breaking the stop extreme is what
-        invalidates the OB itself. OHLC is Bid data. A long therefore enters at
+        Same window rules as process_signal_candle (see
+        _sweep_reclaim_window). OHLC is Bid data. A long therefore enters at
         close + spread while a short enters at close. The target remains
         fixed-RR so this experiment changes entry confirmation only.
         """
         self.stats["sweep_reclaim_checked"] = self.stats.get("sweep_reclaim_checked", 0) + 1
-        if order.direction == "bull":
-            swept = candle.low < order.entry
-            confirmed = swept and candle.close > order.entry
-            fill = candle.close + spread
-        else:
-            swept = candle.high > order.entry
-            confirmed = swept and candle.close < order.entry
-            fill = candle.close
-        if swept:
-            self.stats["sweep_reclaim_entry_swept"] = self.stats.get(
-                "sweep_reclaim_entry_swept", 0) + 1
+        confirmed, lag = self._sweep_reclaim_window(order, candle, bar_index)
         if not confirmed:
             return False
+        fill = candle.close + spread if order.direction == "bull" else candle.close
         self.stats["sweep_reclaim_confirmed"] = self.stats.get(
             "sweep_reclaim_confirmed", 0) + 1
         atr = order.meta.get("atr_at_formation") or 0.0
@@ -567,6 +599,7 @@ class PaperBroker:
                   else fill - self.cfg.rr * distance)
         order.meta.update({"entry_mode": "sweep_reclaim",
                            "sweep_reclaim_atr_buffer": self.cfg.sweep_reclaim_atr_buffer,
+                           "sweep_reclaim_lag_bars": lag,
                            "reclaim_close": candle.close})
         opened = self._open(order, fill, candle.time, bar_index, execution_source,
                             spread, stop=stop, target=target) is not None
@@ -933,6 +966,10 @@ class PaperBroker:
         self.stats.setdefault("sweep_reclaim_confirmed", 0)
         self.stats.setdefault("sweep_reclaim_invalidated", 0)
         self.stats.setdefault("sweep_reclaim_filled", 0)
+        self.stats.setdefault("sweep_reclaim_window_expired", 0)
+        self.stats.setdefault("sweep_reclaim_lag0_confirms", 0)
+        self.stats.setdefault("sweep_reclaim_lag1_confirms", 0)
+        self.stats.setdefault("sweep_reclaim_lag2plus_confirms", 0)
         self.stats.setdefault("pivot_highs_confirmed", 0)
         self.stats.setdefault("pivot_lows_confirmed", 0)
         self.stats.setdefault("buy_setups_created", 0)
@@ -940,6 +977,7 @@ class PaperBroker:
         self.rejected_sizing = []
         self.trend_events = []
         self.pivot_events = []
+
         self.breakeven_events = []
         self.current_m5_trend = TrendDirection(data.get("current_m5_trend", TrendDirection.NEUTRAL.value))
         self.entry_pivot_gate_active = data.get("entry_pivot_gate_active", False)

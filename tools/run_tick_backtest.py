@@ -108,6 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="limit at OB edge, or close after same-bar sweep and reclaim")
     parser.add_argument("--sweep-atr-buffer", type=float, default=0.20,
                         help="SL buffer in ATR units for sweep_reclaim entries")
+    parser.add_argument("--sweep-reclaim-max-bars", type=int, default=1, metavar="N",
+                        help="experimental: closed M5 bars the reclaim may lag the "
+                             "sweep (default 1 = same-bar sweep+reclaim, the "
+                             "original logic; a deeper sweep restarts the window)")
     parser.add_argument("--run-label", default="",
                         help="output label; auto-generated from swing/pivot sizes when omitted")
     parser.add_argument("--lifecycle", action="store_true",
@@ -182,6 +186,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
         min_entry_wait_bars=args.min_entry_wait,
         entry_mode=args.entry_mode,
         sweep_reclaim_atr_buffer=args.sweep_atr_buffer,
+        sweep_reclaim_max_bars=args.sweep_reclaim_max_bars,
         entry_lifecycle_enabled=args.lifecycle,
     )
 
