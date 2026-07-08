@@ -99,9 +99,13 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
 
     def close_bar(candle: Candle) -> None:
         nonlocal trading_started
+        # Same candle-driven state advance as PaperApp.on_closed_candle: sets
+        # market_index, advances the optional lifecycle AND confirms pending
+        # sweep_reclaim orders. Running it before this candle's own freshly
+        # formed OBs are added means it can only confirm pre-existing orders,
+        # so no look-ahead is introduced -- identical ordering to Live.
         index = len(engine.candles)
-        broker.market_index = index
-        broker._advance_lifecycle(candle, index)
+        broker.process_signal_candle(candle, index)
         m15_bar = m15.process_m5(candle)
         liq_m5.process(candle)
         if m15_bar:
