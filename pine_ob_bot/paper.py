@@ -90,6 +90,11 @@ class PaperBroker:
                       "cancelled_trend_change": 0,
                       "cancelled_trend_neutral": 0,
                       "rejected_no_entry_pivot": 0,
+                      "rejected_stale_entry_pivot": 0,
+                      "accepted_fresh_entry_pivot": 0,
+                      "entry_pivot_age_samples": 0,
+                      "entry_pivot_age_sum_bars": 0,
+                      "entry_pivot_age_max_bars": 0,
                       "breakeven_armed": 0,
                       "sweep_reclaim_checked": 0,
                       "sweep_reclaim_entry_swept": 0,
@@ -154,6 +159,8 @@ class PaperBroker:
         # Inactive unless enable_entry_pivot_gate() has been called (see
         # __init__), which every real execution path does.
         required_pivot: EntryPivot | None = None
+        pivot_confirmation_index: int | None = None
+        entry_pivot_age_bars: int | None = None
         if self.entry_pivot_gate_active:
             required_pivot = (self.last_pivot_low if ob.direction == "bull"
                              else self.last_pivot_high)
@@ -169,6 +176,44 @@ class PaperBroker:
                     "signal_type": ob.break_kind,
                 })
                 return None
+            # Freshness (max_entry_pivot_age_bars): age is measured from the
+            # pivot's CONFIRMATION bar (candle_index + right_bars), never from
+            # the pivot candle itself, so asymmetric left/right windows keep
+            # their exact meaning: left only shapes WHICH bar can be a pivot,
+            # right alone sets the causal confirmation delay.
+            pivot_confirmation_index = (required_pivot.candle_index +
+                                        required_pivot.right_bars)
+            entry_pivot_age_bars = ob.formed_index - pivot_confirmation_index
+            if entry_pivot_age_bars < 0:
+                # Defensive lookahead guard: a pivot whose right-side window
+                # has not fully closed by this setup's bar must behave exactly
+                # like a missing pivot.
+                self.stats["rejected_no_entry_pivot"] = self.stats.get(
+                    "rejected_no_entry_pivot", 0) + 1
+                return None
+            max_age = self.cfg.max_entry_pivot_age_bars
+            if max_age is not None and entry_pivot_age_bars > max_age:
+                self.stats["rejected_stale_entry_pivot"] = self.stats.get(
+                    "rejected_stale_entry_pivot", 0) + 1
+                self.trend_events.append({
+                    "event_type": "order_rejected_stale_entry_pivot",
+                    "order_id": None, "ob_id": ob.id, "side": ob.direction,
+                    "current_m5_trend": self.current_m5_trend.value,
+                    "trend_at_creation": self.current_m5_trend.value,
+                    "reason": "ORDER_REJECTED_STALE_ENTRY_PIVOT",
+                    "time": ob.formed_time, "signal_type": ob.break_kind,
+                    "entry_pivot_age_bars": entry_pivot_age_bars,
+                    "max_entry_pivot_age_bars": max_age,
+                })
+                return None
+            self.stats["accepted_fresh_entry_pivot"] = self.stats.get(
+                "accepted_fresh_entry_pivot", 0) + 1
+            self.stats["entry_pivot_age_samples"] = self.stats.get(
+                "entry_pivot_age_samples", 0) + 1
+            self.stats["entry_pivot_age_sum_bars"] = self.stats.get(
+                "entry_pivot_age_sum_bars", 0) + entry_pivot_age_bars
+            self.stats["entry_pivot_age_max_bars"] = max(
+                self.stats.get("entry_pivot_age_max_bars", 0), entry_pivot_age_bars)
         risk = ob.high - ob.low
         target = ob.entry + self.cfg.rr * risk if ob.direction == "bull" else ob.entry - self.cfg.rr * risk
         lifecycle = "formed" if self.cfg.entry_lifecycle_enabled else "armed"
@@ -190,6 +235,17 @@ class PaperBroker:
                               "entry_pivot_time": required_pivot.pivot_time if required_pivot else None,
                               "entry_pivot_confirmed_at": required_pivot.confirmed_at
                               if required_pivot else None,
+                              "entry_pivot_type": (required_pivot.kind.replace("pivot_", "")
+                                                   if required_pivot else None),
+                              "entry_pivot_candle_index": (required_pivot.candle_index
+                                                           if required_pivot else None),
+                              "entry_pivot_confirmation_index": pivot_confirmation_index,
+                              "entry_pivot_left_bars": (required_pivot.left_bars
+                                                        if required_pivot else None),
+                              "entry_pivot_right_bars": (required_pivot.right_bars
+                                                         if required_pivot else None),
+                              "entry_pivot_age_bars_at_setup": entry_pivot_age_bars,
+                              "max_entry_pivot_age_bars": self.cfg.max_entry_pivot_age_bars,
                               **(extra_meta or {})}, lifecycle)
         self.pending.append(order)
         self.pending.sort(key=lambda x: (x.created_index, x.created_time))
@@ -1056,8 +1112,8 @@ class PaperBroker:
                 "recent_spreads": list(self.recent_spreads), "stats": self.stats,
                 "current_m5_trend": self.current_m5_trend.value,
                 "entry_pivot_gate_active": self.entry_pivot_gate_active,
-                "last_pivot_high": asdict(self.last_pivot_high) if self.last_pivot_high else None,
-                "last_pivot_low": asdict(self.last_pivot_low) if self.last_pivot_low else None,
+                "last_pivot_high": _dump_entry_pivot(self.last_pivot_high, index_offset),
+                "last_pivot_low": _dump_entry_pivot(self.last_pivot_low, index_offset),
                 "revival_shadow": self.revival_shadow,
                 "shadow_positions": self.shadow_positions}
 
@@ -1091,6 +1147,11 @@ class PaperBroker:
         self.stats.setdefault("cancelled_trend_change", 0)
         self.stats.setdefault("cancelled_trend_neutral", 0)
         self.stats.setdefault("rejected_no_entry_pivot", 0)
+        self.stats.setdefault("rejected_stale_entry_pivot", 0)
+        self.stats.setdefault("accepted_fresh_entry_pivot", 0)
+        self.stats.setdefault("entry_pivot_age_samples", 0)
+        self.stats.setdefault("entry_pivot_age_sum_bars", 0)
+        self.stats.setdefault("entry_pivot_age_max_bars", 0)
         self.stats.setdefault("breakeven_armed", 0)
         self.stats.setdefault("sweep_reclaim_checked", 0)
         self.stats.setdefault("sweep_reclaim_entry_swept", 0)
@@ -1127,6 +1188,17 @@ class PaperBroker:
         self.entry_pivot_gate_active = data.get("entry_pivot_gate_active", False)
         self.last_pivot_high = EntryPivot(**data["last_pivot_high"]) if data.get("last_pivot_high") else None
         self.last_pivot_low = EntryPivot(**data["last_pivot_low"]) if data.get("last_pivot_low") else None
+
+
+def _dump_entry_pivot(pivot: EntryPivot | None, index_offset: int) -> dict | None:
+    """asdict() an EntryPivot with candle_index shifted by index_offset, so a
+    trimmed dump/load round-trip keeps pivot ages causally correct (the same
+    shift dump_state applies to every other persisted bar index)."""
+    if pivot is None:
+        return None
+    item = asdict(pivot)
+    item["candle_index"] -= index_offset
+    return item
 
 
 def _is_after(left: str, right: str) -> bool:

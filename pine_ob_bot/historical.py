@@ -181,6 +181,12 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                     "filled_orders": len(filled_ids), "closed_trades": len(broker.trades),
                     "average_r": average_r, "max_drawdown": broker.max_drawdown,
                     **broker.stats})
+    age_samples = broker.stats.get("entry_pivot_age_samples", 0)
+    summary["avg_entry_pivot_age_bars"] = (
+        round(broker.stats.get("entry_pivot_age_sum_bars", 0) / age_samples, 2)
+        if age_samples else None)
+    summary["max_entry_pivot_age_seen"] = (
+        broker.stats.get("entry_pivot_age_max_bars", 0) if age_samples else None)
     export_html(broker, root / f"historical_{label}_report.html",
                 f"Pine Swing-OB Backtest — {csv_path.name}",
                 {"source": csv_path, "bars": len(frame), "spread": spread,

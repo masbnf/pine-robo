@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=5,
         help="closed M5 bars required to confirm the right side of an entry pivot (default: 5)",
     )
+    parser.add_argument("--max-entry-pivot-age", type=int, default=None, metavar="N",
+                        help="reject setups whose latest confirmed entry pivot is more "
+                             "than N closed M5 bars past its confirmation bar "
+                             "(inclusive boundary; default: no age limit)")
     parser.add_argument(
         "--swing-length",
         type=int,
@@ -180,6 +184,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int, db_path: Pat
         trend_swing_length=trend_swing_length,
         entry_pivot_left=args.entry_pivot_left,
         entry_pivot_right=args.entry_pivot_right,
+        max_entry_pivot_age_bars=args.max_entry_pivot_age,
 
         target_mode=args.target_mode,
         breakeven_trigger_r=args.breakeven_at_r,

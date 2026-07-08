@@ -180,4 +180,10 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
                     "buy_setups": broker.stats.get("buy_setups_created", 0),
                     "sell_setups": broker.stats.get("sell_setups_created", 0),
                     **broker.stats})
+    age_samples = broker.stats.get("entry_pivot_age_samples", 0)
+    summary["avg_entry_pivot_age_bars"] = (
+        round(broker.stats.get("entry_pivot_age_sum_bars", 0) / age_samples, 2)
+        if age_samples else None)
+    summary["max_entry_pivot_age_seen"] = (
+        broker.stats.get("entry_pivot_age_max_bars", 0) if age_samples else None)
     return summary

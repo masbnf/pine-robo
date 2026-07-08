@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="closed M5 bars to the left of a classic entry pivot (default: 5)")
     parser.add_argument("--entry-pivot-right", type=int, default=5,
                         help="closed M5 bars required to confirm the right side of an entry pivot (default: 5)")
+    parser.add_argument("--max-entry-pivot-age", type=int, default=None, metavar="N",
+                        help="reject setups whose latest confirmed entry pivot is more "
+                             "than N closed M5 bars past its confirmation bar "
+                             "(inclusive boundary; default: no age limit)")
     parser.add_argument("--swing-length", type=int, default=None,
                         help="deprecated alias for --trend-swing-length; kept for backward compatibility")
 
@@ -156,6 +160,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
         trend_swing_length=trend_swing_length,
         entry_pivot_left=args.entry_pivot_left,
         entry_pivot_right=args.entry_pivot_right,
+        max_entry_pivot_age_bars=args.max_entry_pivot_age,
 
         target_mode=args.target_mode,
         breakeven_trigger_r=args.breakeven_at_r,
@@ -219,4 +224,15 @@ def main(argv=None) -> int:
 
     print(f"M5 trend swing length: {trend_swing_length}")
     print(f"M5 trend swing confirmation delay: {trend_swing_length * 5} minutes")
-  
+    print(f"M5 entry pivot: left={entry_pivot_left} right={entry_pivot_right}")
+    print(f"M5 entry pivot confirmation delay: {entry_pivot_right * 5} minutes")
+
+    summary = run_tick_historical(paths, cfg, args.initial_equity, args.out,
+                                  effective_label, args.warmup_bars)
+    for key, value in summary.items():
+        print(f"{key}: {value}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

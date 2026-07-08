@@ -77,6 +77,11 @@ class BotConfig:
     # how many would have seen a FRESH sweep+reclaim after the return, and
     # the hypothetical R those fills would have produced.
     revival_shadow_audit: bool = False
+    # Entry Pivot freshness: a confirmed entry pivot may admit new setups for
+    # at most this many closed M5 bars past its CONFIRMATION bar (inclusive:
+    # age == limit is still fresh). None = no age limit, i.e. the legacy
+    # behaviour where the latest pivot stays valid forever.
+    max_entry_pivot_age_bars: int | None = None
     # Move the stop to entry once open profit reaches this many R (e.g. 1.0).
     # None disables the breakeven move entirely. Read by
     # PaperBroker._apply_breakeven on every tick/candle that touches an open
@@ -127,6 +132,8 @@ class BotConfig:
             raise ValueError("lookback periods must be positive")
         if self.entry_pivot_left < 1 or self.entry_pivot_right < 1:
             raise ValueError("entry pivot windows must be positive")
+        if self.max_entry_pivot_age_bars is not None and self.max_entry_pivot_age_bars < 1:
+            raise ValueError("max_entry_pivot_age_bars must be positive or None")
         if self.state_history_bars < max(self.trend_swing_length, self.atr_period):
             raise ValueError("state history is shorter than strategy warm-up")
         if self.rr <= 0 or not 0 < self.risk_fraction <= 1:
