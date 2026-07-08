@@ -170,7 +170,14 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
         dashboard_host=args.dashboard_host,
         dashboard_port=args.dashboard_port,
 
-        allowed_break_kinds=("BOS",) if args.bos_only else ("BOS", "CHoCH"),
+        # Default is BOS-only, matching BotConfig and the --include-choch help
+        # text. Before 2026-07 this line silently traded CHoCH order blocks by
+        # default (("BOS", "CHoCH") unless --bos-only), which cost -9.3R across
+        # the 2026-03..06 sweep_reclaim runs. --strong-choch-only implies CHoCH
+        # must pass the kinds gate so its displacement filter can apply.
+        allowed_break_kinds=(("BOS", "CHoCH")
+                             if (args.include_choch or args.strong_choch_only)
+                             and not args.bos_only else ("BOS",)),
         strong_choch_only=args.strong_choch_only,
         min_entry_wait_bars=args.min_entry_wait,
         entry_mode=args.entry_mode,

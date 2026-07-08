@@ -28,12 +28,6 @@ class BotConfig:
     m15_atr_period: int = 200
     rr: float = 1.5
     target_mode: str = "fixed_rr"
-    # Move the SL to entry exactly once when the trade's real MFE reaches this
-    # many R (fractions of the initial entry-to-stop distance). None disables
-    # the behaviour. The stop never moves backward, and no offset is applied
-    # (a breakeven exit closes at entry, ~0 PnL). Shared by Paper live, Demo
-    # mirroring and both backtest runners via PaperBroker._apply_breakeven.
-    breakeven_trigger_r: float | None = None
     risk_fraction: float = 0.01
     liquidity_risk_sizing_enabled: bool = False
     choch_risk_sizing_enabled: bool = False
@@ -67,6 +61,11 @@ class BotConfig:
     min_entry_wait_bars: int = 0
     entry_mode: str = "limit"
     sweep_reclaim_atr_buffer: float = 0.20
+    # Move the stop to entry once open profit reaches this many R (e.g. 1.0).
+    # None disables the breakeven move entirely. Read by
+    # PaperBroker._apply_breakeven on every tick/candle that touches an open
+    # position; the "breakeven_armed" stat counts activations.
+    breakeven_trigger_r: float | None = None
     entry_lifecycle_enabled: bool = False
     poll_seconds: float = 1.0
     fallback_spread: float = 0.20
@@ -80,7 +79,7 @@ class BotConfig:
     market_capture_dir: Path = Path("pine_ob_bot_data/market_capture")
     max_live_tick_age_seconds: float = 30.0
     entry_spread_guard_enabled: bool = True
-    max_entry_spread_atr_fraction: float = 0.10
+    max_entry_spread_atr_fraction: float = 0.15
     spread_median_window: int = 300
     spread_median_min_samples: int = 20
     spread_median_multiplier: float = 3.0
@@ -118,8 +117,6 @@ class BotConfig:
             raise ValueError("rr and risk_fraction must be positive")
         if self.target_mode not in {"fixed_rr", "m5_liquidity_min_rr"}:
             raise ValueError("invalid target_mode")
-        if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
-            raise ValueError("breakeven_trigger_r must be positive")
         if not 0 < self.base_risk_fraction <= 1 or not 0 < self.liquidity_risk_fraction <= 1:
             raise ValueError("adaptive risk fractions must be positive")
         if not 0 < self.choch_base_risk_fraction <= 1 or not 0 < self.choch_opposite_risk_fraction <= 1:
@@ -158,6 +155,8 @@ class BotConfig:
             raise ValueError("entry_mode must be 'limit' or 'sweep_reclaim'")
         if self.sweep_reclaim_atr_buffer < 0:
             raise ValueError("sweep_reclaim_atr_buffer cannot be negative")
+        if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
+            raise ValueError("breakeven_trigger_r must be positive or None")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
         if self.fallback_spread < 0:
