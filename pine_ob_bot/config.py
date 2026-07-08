@@ -196,4 +196,12 @@ class BotConfig:
 # body/decorator instead of via an in-body @property. `swing_length` is also
 # the InitVar constructor-kwarg name above; a same-named @property inside the
 # class body would be captured by @dataclass(slots=True) as that InitVar's
-# default (over
+# default (overwriting the real `None` default with the property object
+# itself, since dataclass reads the class namespace at decoration time --
+# i.e. after the whole class body, including the later @property statement,
+# has already executed). That silently corrupted every BotConfig() call built
+# with no explicit swing_length=, replacing trend_swing_length with a
+# <property object>. Attaching the property here, after BotConfig already
+# exists as a finished (slotted) class, avoids the collision entirely.
+BotConfig.swing_length = property(lambda self: self.trend_swing_length,
+                                  doc="Deprecated read-only alias for trend_swing_length.")
