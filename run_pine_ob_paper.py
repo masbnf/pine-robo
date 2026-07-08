@@ -126,6 +126,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="experimental: closed M5 bars the reclaim may lag the "
                              "sweep (default 1 = same-bar sweep+reclaim, the "
                              "original logic; a deeper sweep restarts the window)")
+    parser.add_argument("--revival-shadow-audit", action="store_true",
+                        help="observe-only audit of trend-cancelled setups: counts "
+                             "trend returns within 3/6/12 bars while the OB is "
+                             "still valid, fresh sweep+reclaims after the return, "
+                             "and hypothetical fills/R. Never trades.")
     parser.add_argument("--run-label", default="", help="suffix for historical output files")
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
@@ -213,6 +218,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int, db_path: Pat
         entry_mode=args.entry_mode,
         sweep_reclaim_atr_buffer=args.sweep_atr_buffer,
         sweep_reclaim_max_bars=args.sweep_reclaim_max_bars,
+        revival_shadow_audit=args.revival_shadow_audit,
         entry_lifecycle_enabled=args.lifecycle,
     )
 

@@ -69,6 +69,14 @@ class BotConfig:
     # back beyond the edge confirms; a deeper sweep restarts the window; OB
     # invalidation still kills the order at any point.
     sweep_reclaim_max_bars: int = 1
+    # Shadow audit of "revive setups after the trend returns" (sweep_reclaim
+    # only; enable via --revival-shadow-audit on the runners). NEVER creates,
+    # fills or cancels real orders: trend-cancelled setups are additionally
+    # tracked in a shadow list, and counters report how many would have been
+    # revivable (trend back within 3/6/12 bars while the OB is still valid),
+    # how many would have seen a FRESH sweep+reclaim after the return, and
+    # the hypothetical R those fills would have produced.
+    revival_shadow_audit: bool = False
     # Move the stop to entry once open profit reaches this many R (e.g. 1.0).
     # None disables the breakeven move entirely. Read by
     # PaperBroker._apply_breakeven on every tick/candle that touches an open

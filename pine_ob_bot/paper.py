@@ -74,6 +74,10 @@ class PaperBroker:
         # whose stop was just moved to breakeven, so the caller can log,
         # persist and (in Demo mode) mirror the SL modification exactly once.
         self.breakeven_events: list[dict] = []
+        # Shadow-audit state (cfg.revival_shadow_audit). Pure observation:
+        # nothing in these two lists can ever create or touch a real order.
+        self.revival_shadow: list[dict] = []
+        self.shadow_positions: list[dict] = []
         self.stats = {"setups_seen": 0, "rejected_break_kind": 0,
                       "rejected_weak_choch": 0,
                       "early_touch_blocked": 0, "lifecycle_accepted": 0,
@@ -96,6 +100,17 @@ class PaperBroker:
                       "sweep_reclaim_lag0_confirms": 0,
                       "sweep_reclaim_lag1_confirms": 0,
                       "sweep_reclaim_lag2plus_confirms": 0,
+                      "trend_suspended": 0,
+                      "trend_returned_3": 0,
+                      "trend_returned_6": 0,
+                      "trend_returned_12": 0,
+                      "reactivation_ob_still_valid": 0,
+                      "reactivation_fresh_sweep": 0,
+                      "reactivation_confirmed": 0,
+                      "reactivation_would_fill": 0,
+                      "reactivation_wins": 0,
+                      "reactivation_losses": 0,
+                      "reactivation_hypothetical_r": 0.0,
                       "pivot_highs_confirmed": 0,
                       "pivot_lows_confirmed": 0,
                       "buy_setups_created": 0,
@@ -225,6 +240,9 @@ class PaperBroker:
                         "sweep_reclaim_invalidated", 0) + 1
                 order.active = False
                 order.lifecycle_state = "invalidated"
+        for rec in self.revival_shadow:
+            if rec["ob_id"] == ob_id and rec["state"] in ("suspended", "awaiting"):
+                rec["state"] = "dead_ob"
 
     def update_m5_trend(self, new_trend: TrendDirection, when: str) -> int:
         """Apply the latest M5 trend (from PineSwingOBEngine.trend) and cancel
@@ -260,6 +278,20 @@ class PaperBroker:
                 "signal_type": order.meta.get("break_kind"),
             })
             cancelled += 1
+            # Shadow audit: the real order above is cancelled exactly as
+            # before; the shadow record merely remembers it for observation.
+            if (self.cfg.revival_shadow_audit and
+                    self.cfg.entry_mode == "sweep_reclaim" and
+                    self.market_index is not None):
+                self.revival_shadow.append({
+                    "order_id": order.id, "ob_id": order.ob_id,
+                    "direction": order.direction, "entry": order.entry,
+                    "stop": order.stop,
+                    "atr": order.meta.get("atr_at_formation") or 0.0,
+                    "cancel_index": self.market_index,
+                    "state": "suspended", "swept": False,
+                })
+                self.stats["trend_suspended"] = self.stats.get("trend_suspended", 0) + 1
         return cancelled
 
     def reconcile_entry_filters(self) -> int:
@@ -365,6 +397,8 @@ class PaperBroker:
         self._advance_lifecycle(candle, bar_index)
         if self.cfg.entry_mode != "sweep_reclaim":
             return
+        if self.cfg.revival_shadow_audit:
+            self._revival_shadow_on_candle(candle, bar_index)
         for order in self._active_pending():
             if order.lifecycle_state != "armed":
                 continue
@@ -522,6 +556,101 @@ class PaperBroker:
     def _observe_spread(self, spread: float) -> None:
         if math.isfinite(spread) and spread >= 0:
             self.recent_spreads.append(spread)
+
+    def _revival_shadow_on_candle(self, candle: Candle, bar_index: int) -> None:
+        """Advance the revival shadow audit by one closed bar. Observation only.
+
+        Rules (docs/ENTRY_FUNNEL_FINDINGS.md follow-up): a trend-cancelled
+        setup is tracked while its OB stays valid; the trend must return
+        within 12 closed bars (bucketed 3/6/12 for reporting); after the
+        return a FRESH same-bar sweep+reclaim is required (a reclaim before
+        the trend returned never counts); each OB is revived at most once;
+        the hypothetical fill uses close +/- fallback_spread, the ATR-buffered
+        stop and the fixed-RR target, then walks candles SL-first.
+
+        Alignment uses current_m5_trend, i.e. the trend as of the PREVIOUS
+        closed bar, because live ordering runs this before update_m5_trend --
+        one bar of confirmation conservatism, identical to how real pending
+        orders experience the trend gate.
+        """
+        for pos in list(self.shadow_positions):
+            if pos["direction"] == "bull":
+                hit_sl = candle.low <= pos["stop"]
+                hit_tp = candle.high >= pos["target"]
+            else:
+                hit_sl = candle.high >= pos["stop"]
+                hit_tp = candle.low <= pos["target"]
+            if not (hit_sl or hit_tp):
+                continue
+            result_r = -1.0 if hit_sl else self.cfg.rr
+            key = "reactivation_losses" if hit_sl else "reactivation_wins"
+            self.stats[key] = self.stats.get(key, 0) + 1
+            self.stats["reactivation_hypothetical_r"] = round(
+                self.stats.get("reactivation_hypothetical_r", 0.0) + result_r, 6)
+            self.shadow_positions.remove(pos)
+        for rec in self.revival_shadow:
+            if rec["state"] not in ("suspended", "awaiting"):
+                continue
+            want = "bullish" if rec["direction"] == "bull" else "bearish"
+            aligned = self.current_m5_trend.value == want
+            if rec["state"] == "suspended":
+                lag = bar_index - rec["cancel_index"]
+                if aligned:
+                    if lag <= 3:
+                        bucket = "trend_returned_3"
+                    elif lag <= 6:
+                        bucket = "trend_returned_6"
+                    elif lag <= 12:
+                        bucket = "trend_returned_12"
+                    else:
+                        rec["state"] = "return_too_late"
+                        continue
+                    self.stats[bucket] = self.stats.get(bucket, 0) + 1
+                    self.stats["reactivation_ob_still_valid"] = self.stats.get(
+                        "reactivation_ob_still_valid", 0) + 1
+                    rec["state"] = "awaiting"
+                    rec["revival_index"] = bar_index
+                elif lag > 12:
+                    rec["state"] = "expired_no_return"
+                continue
+            # awaiting: one revival window only -- if the trend leaves again,
+            # the record is finished for good.
+            if not aligned:
+                rec["state"] = "trend_left_again"
+                continue
+            if rec["direction"] == "bull":
+                swept = candle.low < rec["entry"]
+                reclaimed = swept and candle.close > rec["entry"]
+                fill = candle.close + self.cfg.fallback_spread
+            else:
+                swept = candle.high > rec["entry"]
+                reclaimed = swept and candle.close < rec["entry"]
+                fill = candle.close
+            if swept and not rec["swept"]:
+                rec["swept"] = True
+                self.stats["reactivation_fresh_sweep"] = self.stats.get(
+                    "reactivation_fresh_sweep", 0) + 1
+            if not reclaimed:
+                continue
+            self.stats["reactivation_confirmed"] = self.stats.get(
+                "reactivation_confirmed", 0) + 1
+            buffer = rec["atr"] * self.cfg.sweep_reclaim_atr_buffer
+            stop = (rec["stop"] - buffer if rec["direction"] == "bull"
+                    else rec["stop"] + buffer)
+            distance = abs(fill - stop)
+            if distance <= 0:
+                rec["state"] = "confirmed_unfillable"
+                continue
+            target = (fill + self.cfg.rr * distance if rec["direction"] == "bull"
+                      else fill - self.cfg.rr * distance)
+            self.stats["reactivation_would_fill"] = self.stats.get(
+                "reactivation_would_fill", 0) + 1
+            rec["state"] = "filled_shadow"
+            self.shadow_positions.append({
+                "direction": rec["direction"], "fill": fill, "stop": stop,
+                "target": target, "ob_id": rec["ob_id"],
+                "opened_index": bar_index, "opened_time": candle.time,
+            })
 
     def _sweep_reclaim_window(self, order: PendingOrder, candle: Candle,
                               bar_index: int) -> tuple[bool, int]:
@@ -928,7 +1057,9 @@ class PaperBroker:
                 "current_m5_trend": self.current_m5_trend.value,
                 "entry_pivot_gate_active": self.entry_pivot_gate_active,
                 "last_pivot_high": asdict(self.last_pivot_high) if self.last_pivot_high else None,
-                "last_pivot_low": asdict(self.last_pivot_low) if self.last_pivot_low else None}
+                "last_pivot_low": asdict(self.last_pivot_low) if self.last_pivot_low else None,
+                "revival_shadow": self.revival_shadow,
+                "shadow_positions": self.shadow_positions}
 
     def load_state(self, data: dict) -> None:
         self.initial_equity = data["initial_equity"]
@@ -970,6 +1101,19 @@ class PaperBroker:
         self.stats.setdefault("sweep_reclaim_lag0_confirms", 0)
         self.stats.setdefault("sweep_reclaim_lag1_confirms", 0)
         self.stats.setdefault("sweep_reclaim_lag2plus_confirms", 0)
+        self.stats.setdefault("trend_suspended", 0)
+        self.stats.setdefault("trend_returned_3", 0)
+        self.stats.setdefault("trend_returned_6", 0)
+        self.stats.setdefault("trend_returned_12", 0)
+        self.stats.setdefault("reactivation_ob_still_valid", 0)
+        self.stats.setdefault("reactivation_fresh_sweep", 0)
+        self.stats.setdefault("reactivation_confirmed", 0)
+        self.stats.setdefault("reactivation_would_fill", 0)
+        self.stats.setdefault("reactivation_wins", 0)
+        self.stats.setdefault("reactivation_losses", 0)
+        self.stats.setdefault("reactivation_hypothetical_r", 0.0)
+        self.revival_shadow = [dict(x) for x in data.get("revival_shadow", [])]
+        self.shadow_positions = [dict(x) for x in data.get("shadow_positions", [])]
         self.stats.setdefault("pivot_highs_confirmed", 0)
         self.stats.setdefault("pivot_lows_confirmed", 0)
         self.stats.setdefault("buy_setups_created", 0)
