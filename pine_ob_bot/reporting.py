@@ -239,7 +239,9 @@ def export_html(broker: PaperBroker, path: Path, title: str,
     chart = _equity_svg(trades["equity"].tolist() if not trades.empty else [broker.initial_equity])
     sections = []
     if not trades.empty:
-        ts = pd.to_datetime(trades["opened_time"], utc=True)
+        # Tick-sourced open times mix fractional and whole seconds; inferring
+        # the format from the first row makes pandas reject the other kind.
+        ts = pd.to_datetime(trades["opened_time"], utc=True, format="ISO8601")
         trades["session"] = ts.dt.hour.map(lambda h: "Asia" if h < 8 else "London" if h < 13 else "NewYork" if h < 21 else "OffHours")
         trades["weekday"] = ts.dt.day_name()
         trades["month"] = ts.dt.strftime("%Y-%m")
