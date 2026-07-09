@@ -297,7 +297,7 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                               ("M5 sweep depth quantiles", "liq_m5_opposite_sweep_depth_atr_quantile")):
             if column not in trades:
                 continue
-            sections.append(f"<section><h2>{label}</h2>{_html_group(trades, column)}</section>")
+            sections.append(f'<section><h2>{label}</h2><div class="table-scroll">{_html_group(trades, column)}</div></section>')
         cols = [x for x in ["opened_time", "direction", "break_kind", "entry", "stop", "target",
                             "result", "pnl", "r_multiple", "max_adverse_r", "max_favorable_r",
                             "width/ATR", "wait bars", "m15_trend", "m15_alignment",
@@ -310,20 +310,23 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",
                             "demo_entry_slippage", "demo_close_price", "demo_exit_slippage"] if x in trades]
         recent = trades[cols].tail(200).iloc[::-1]
-        sections.append("<section class='wide'><h2>Latest trades (max 200)</h2>" +
-                        recent.to_html(index=False, classes="data", border=0, float_format=lambda x: f"{x:.3f}") + "</section>")
+        sections.append('<section class="wide"><h2>Latest trades (max 200)</h2><div class="table-scroll">' +
+                        recent.to_html(index=False, classes="data", border=0, float_format=lambda x: f"{x:.3f}") +
+                        "</div></section>")
     css = """
     :root{color-scheme:dark;font-family:Inter,Segoe UI,Arial;background:#0b1020;color:#e7ebf5}
     body{max-width:1500px;margin:auto;padding:28px}.muted{color:#93a0ba}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0}
     .card,section{background:#121a2e;border:1px solid #23304d;border-radius:12px;padding:16px}.card span{display:block;color:#93a0ba;font-size:13px}.card b{font-size:22px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}h1,h2{margin-top:0}h2{font-size:17px}
-    table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #26324c;text-align:right}th:first-child,td:first-child{text-align:left}th{color:#9fb0ce}
-    svg{width:100%;height:260px}.line{fill:none;stroke:#49d39d;stroke-width:2}.area{fill:#49d39d22}.axis{stroke:#394766;stroke-width:1}
-    @media(max-width:850px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}body{padding:12px}}
+    .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #26324c;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:#9fb0ce;position:sticky;top:0;background:#121a2e}
+    tbody tr:nth-child(even){background:#0f1729}tbody tr:hover{background:#16233d}
+    svg{width:100%;height:260px}.line{fill:none;stroke:#49d39d;stroke-width:2}.area{fill:#49d39d22}.axis{stroke:#394766;stroke-width:1}.chart-label{fill:#93a0ba;font-size:11px;font-family:Inter,Segoe UI,Arial}
+    @media(max-width:850px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}body{padding:12px}.cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}
     """
     refresh = (f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
                if refresh_seconds else "")
-    doc = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">{refresh}<title>{html.escape(title)}</title><style>{css}</style></head>
+    doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">{refresh}<title>{html.escape(title)}</title><style>{css}</style></head>
     <body><h1>{html.escape(title)}</h1><div class="muted">{context_html}</div><div class="cards">{cards}</div>
     <section><h2>Equity curve</h2>{chart}</section><div class="grid">{''.join(sections)}</div></body></html>"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -354,7 +357,14 @@ def _equity_svg(values: list[float]) -> str:
         points.append(f"{x:.1f},{y:.1f}")
     line = " ".join(points)
     area = f"{pad},{height-pad} {line} {width-pad},{height-pad}"
-    return f'<svg viewBox="0 0 {width} {height}" role="img"><line class="axis" x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}"/><polygon class="area" points="{area}"/><polyline class="line" points="{line}"/></svg>'
+    hi_label = f'<text class="chart-label" x="{pad}" y="{pad + 10}">${hi:,.2f}</text>'
+    lo_label = f'<text class="chart-label" x="{pad}" y="{height - pad - 4}">${lo:,.2f}</text>'
+    last_label = (f'<text class="chart-label" x="{width - pad}" y="{pad + 10}" text-anchor="end">'
+                  f'${values[-1]:,.2f}</text>')
+    return (f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Equity curve">'
+           f'<line class="axis" x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}"/>'
+           f'<polygon class="area" points="{area}"/><polyline class="line" points="{line}"/>'
+           f'{hi_label}{lo_label}{last_label}</svg>')
 
 
 def _bucket(value, limits):

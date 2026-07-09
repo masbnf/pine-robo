@@ -15,14 +15,20 @@ class ReportWorker:
         self.thread = threading.Thread(target=self._run, name="pine-ob-reports", daemon=True)
         self.thread.start()
 
-    def submit(self, callback: Callable, *args) -> bool:
+    def submit(self, callback: Callable, *args, block: bool = False) -> bool:
         job = (callback, args)
+        if block:
+            # Used only for the final shutdown report: waits for a free slot
+            # instead of dropping the job, so the last snapshot is never lost
+            # just because two periodic refreshes were still in flight.
+            self.jobs.put(job)
+            return True
         try:
             self.jobs.put_nowait(job)
             return True
         except queue.Full:
             # Keep trading responsive. A newer snapshot will be attempted on
-            # the next refresh; the final shutdown report always waits.
+            # the next refresh.
             self.log.warning("report queue busy; skipped one intermediate refresh")
             return False
 

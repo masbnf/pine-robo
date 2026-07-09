@@ -120,6 +120,21 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                                                **choch.snapshot(direction, index)}
                                    for direction in ("bull", "bear")})
 
+    # Final flush: every earlier iteration drains the PREVIOUS iteration's
+    # rejected_sizing/trend_events at its own top, so events appended after
+    # that point on the very last candle (by this candle's own
+    # update_m5_trend/add_ob calls) would otherwise never reach the log --
+    # they still count correctly in broker.stats, only the per-event log rows
+    # were being silently dropped. Guarded for an empty CSV, where the loop
+    # (and therefore `candle`) never ran.
+    if len(frame):
+        for rejection in broker.rejected_sizing:
+            rejected_sizing_log.append({**rejection, "time": rejection.get("time", candle.time)})
+        broker.rejected_sizing.clear()
+        for event in broker.trend_events:
+            trend_events_log.append({**event, "time": event.get("time", candle.time)})
+        broker.trend_events.clear()
+
     root = cfg.db_path.parent
     raw_label = csv_path.stem + (f"_{run_label}" if run_label else "")
     label = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in raw_label)

@@ -66,7 +66,18 @@ class PineSwingOBEngine:
             if ob.active and crossed:
                 ob.active = False
                 invalidated.append(ob.id)
-        self.order_blocks = self.order_blocks[:100]
+        if len(self.order_blocks) > 100:
+            # Trim history, but never drop a still-active block just because it
+            # is old: an active OB dropped here would stop being checked by the
+            # invalidation loop above and could leave a stale pending order
+            # armed even after price has technically invalidated its zone.
+            # Recency order matters (mtf_context.py reads the first active
+            # entry as "most recent"), so each half keeps its own original,
+            # newest-first order; only inactive history is trimmed.
+            active_blocks = [ob for ob in self.order_blocks if ob.active]
+            inactive_blocks = [ob for ob in self.order_blocks if not ob.active]
+            keep_inactive = max(0, 100 - len(active_blocks))
+            self.order_blocks = active_blocks + inactive_blocks[:keep_inactive]
         self.last_time = candle.time
         return breaks, formed, invalidated
 

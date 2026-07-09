@@ -184,6 +184,13 @@ class BotConfig:
             raise ValueError("breakeven_trigger_r must be positive or None")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
+        # Values above 1 mean "burst fill": while the broker is flat, up to
+        # max_open_positions pending orders may fill on the same tick/candle
+        # (see tests/test_pine_ob_bot.py test_two_position_capacity_fills_two
+        # _orders). Once at least one position is open, process_tick/
+        # process_candle manage it and return without evaluating new fills, so
+        # positions are never ADDED to an existing one -- capacity only applies
+        # to simultaneous fills from a flat state.
         if self.fallback_spread < 0:
             raise ValueError("fallback_spread cannot be negative")
         if self.max_live_tick_age_seconds <= 0:

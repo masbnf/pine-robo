@@ -408,7 +408,7 @@ class PaperApp:
                     break
                 time.sleep(self.cfg.poll_seconds)
         finally:
-            self._refresh_daily_report(force=True)
+            self._refresh_daily_report(force=True, block=True)
             self.report_worker.close()
             export_reports(self.broker, self.cfg.trades_csv, self.cfg.summary_csv)
             export_html(self.broker, self.cfg.db_path.parent / "paper_report.html",
@@ -421,18 +421,18 @@ class PaperApp:
             if self.dashboard:
                 self.dashboard.close()
 
-    def _refresh_daily_report(self, force: bool = False) -> None:
+    def _refresh_daily_report(self, force: bool = False, block: bool = False) -> None:
         today = datetime.now(self.report_zone).date()
         if today != self.report_day:
-            self._export_daily_report(self.report_day)
+            self._export_daily_report(self.report_day, block=block)
             self.report_day = today
             force = True
         now = time.monotonic()
         if force or now - self.last_report_refresh >= self.cfg.report_refresh_seconds:
-            self._export_daily_report(today)
+            self._export_daily_report(today, block=block)
             self.last_report_refresh = now
 
-    def _export_daily_report(self, day) -> None:
+    def _export_daily_report(self, day, block: bool = False) -> None:
         start_local = datetime.combine(day, datetime_time.min, self.report_zone)
         end_local = start_local + timedelta(days=1)
         counts = self.store.event_counts(start_local.astimezone(timezone.utc).isoformat(),
@@ -466,7 +466,7 @@ class PaperApp:
         if include_breakdown:
             self.last_breakdown_refresh = now
         self.report_worker.submit(self._write_daily_reports, broker_snapshot, day, context,
-                                  counts, include_breakdown)
+                                  counts, include_breakdown, block=block)
 
     def _write_daily_reports(self, broker, day, context, counts, include_breakdown) -> None:
         root = self.cfg.daily_reports_dir

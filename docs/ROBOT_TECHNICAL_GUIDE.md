@@ -70,7 +70,7 @@ True Range برابر بیشینه `high-low`، فاصله high تا close قب�
 
 پس از وجود `trend_swing_length` کندل سمت راست، کاندیدای قدیمی Trend Swing بررسی می‌شود. عبور parsed high/lowهای جدید تعیین می‌کند leg عوض شده است یا نه. با تغییر leg، `swing_high` یا `swing_low` جدید ساخته می‌شود. این تأخیر تأیید intentional است و look-ahead نیست: pivot فقط در زمان قابل‌دانستن ثبت می‌شود.
 
-Entry Pivot با همان منطق ولی پنجره متقارن (`left_bars`/`right_bars`) و مقایسه سخت‌گیرانه `>`/`<` (تساوی رد می‌شود) کار می‌کند؛ یک کاندیدا فقط وقتی `right_bars` کندل بسته بعد از خودش موجود باشد منتشر می‌شود (`EntryPivot.confirmed_at`) و هر پیوت دقیقاً یک‌بار منتشر می‌شود. `PaperBroker.add_ob` قبل از ساخت سفارش، وجود یک Entry Pivot هم‌جهت را شرط می‌گذارد (`enable_entry_pivot_gate`/`update_entry_pivot`)؛ این gate در تست‌های قدیمی که مستقیم `add_ob` صدا می‌زنند به‌صورت پیش‌فرض غیرفعال است اما در هر سه مسیر واقعی اجرا (`PaperApp`، `run_historical`، `run_tick_historical`) همیشه فعال می‌شود.
+Entry Pivot با همان منطق ولی پنجره متقارن (`left_bars`/`right_bars`) و مقایسه سخت‌گیرانه `>`/`<` (تساوی رد می‌شود) کار می‌کند؛ یک کاندیدا فقط وقتی `right_bars` کندل بسته بعد از خودش موجود باشد منتشر می‌شود (`EntryPivot.confirmed_at`) و هر پیوت دقیقاً یک‌بار منتشر می‌شود. `PaperBroker.add_ob` قبل از ساخت سفارش، وجود یک Entry Pivot هم‌جهت را شرط می‌گذارد (`enable_entry_pivot_gate`/`update_entry_pivot`)؛ این gate در تست‌های قدیمی که مستقیم `add_ob` صدا می‌زنند به‌صورت پیش‌فرض غیرفعال است اما در هر سه مسیر واقعی اجرا (`PaperApp`، `run_historical`، `run_tick_historical`) همیشه فعال می‌شود. با `max_entry_pivot_age_bars` (CLI: `--max-entry-pivot-age`، پیش‌فرض `None`=خاموش) تازگی پیوت نیز شرط می‌شود: اگر فاصله کندلیِ تشکیل OB از تأیید آخرین Entry Pivot هم‌جهت بیش از این سقف باشد، setup رد و در شمارنده `rejected_stale_entry_pivot` ثبت می‌شود.
 
 ### BOS و CHoCH
 
@@ -85,6 +85,8 @@ Entry Pivot با همان منطق ولی پنجره متقارن (`left_bars`/`
 
 در مسیر pivot تا کندل شکست، برای bull کمترین parsed low و برای bear بیشترین parsed high انتخاب می‌شود؛ high/low کندل منبع محدوده OB است. Bull OB در عبور low زیر کف و Bear OB در عبور high بالای سقف باطل می‌شود. ورود bull سقف OB و stop کف آن است؛ برای bear برعکس.
 
+لیست OBها برای کنترل حافظه به حدود ۱۰۰ عضو trim می‌شود، اما هیچ OB هنوز فعالی صرفاً به دلیل قدیمی بودن حذف نمی‌شود؛ فقط تاریخچه غیرفعال کوتاه می‌شود. دلیل: OB فعالی که از لیست بیفتد دیگر توسط حلقه ابطال دیده نمی‌شد و pending متناظرش حتی پس از نقض زون مسلح می‌ماند. ترتیب نسبی OBهای فعال (جدیدترین اول) حفظ می‌شود چون `mtf_context.py` اولین OB فعال را «جدیدترین» می‌خواند.
+
 ## 5. اجرای معامله و قیمت‌ها
 
 ### Tick زنده
@@ -96,7 +98,16 @@ Entry Pivot با همان منطق ولی پنجره متقارن (`left_bars`/`
 - tick تکراری و tick قدیمی‌تر از 30 ثانیه معامله نمی‌شود.
 - ورود وقتی spread از سقف تطبیقی عبور کند متوقف می‌شود: ۱۰٪ ATR زمان تشکیل OB و، پس از حداقل ۲۰ نمونه، سه برابر میانه ۳۰۰ تیک اخیر. سقف سخت‌گیرانه‌تر اعمال می‌شود؛ فیلتر عدد ثابت دلاری ندارد.
 - pendingها بر اساس زمان ساخت مرتب‌اند؛ قدیمی‌تر اولویت دارد.
-- به‌طور پیش‌فرض فقط یک position باز می‌شود.
+- pendingی که قیمت پیش از fill از stop آن عبور کند غیرفعال و با برچسب `lifecycle_state="invalidated"` علامت می‌خورد (هم در مسیر tick هم در ابطال OB) تا در تحلیل پس از اجرا از سفارش‌های هنوز مسلح قابل تفکیک باشد.
+- ظرفیت position معنای «burst fill» دارد: تا وقتی هیچ position بازی نیست، حداکثر `max_open_positions` سفارش می‌توانند روی همان tick/کندل fill شوند؛ به محض باز بودن حتی یک position، هیچ fill جدیدی ارزیابی نمی‌شود تا همه بسته شوند (position به position موجود اضافه نمی‌شود). پیش‌فرض 1 است.
+
+### Breakeven اختیاری
+
+با `breakeven_trigger_r` (CLI: `--breakeven-at-r`، پیش‌فرض خاموش) وقتی MFE پوزیشن به آستانه R برسد، SL دقیقاً یک‌بار به قیمت ورود منتقل می‌شود. رخداد در `broker.breakeven_events` جمع و توسط `PaperApp._drain_breakeven_events` در SQLite ثبت می‌شود؛ در حالت Demo همان تغییر SL با `DemoExecutor.modify_stop` به MT5 نیز mirror می‌شود. در replay کندلی OHLC اگر یک کندل هم trigger و هم بازگشت به ورود را داشته باشد، خروج breakeven محسوب می‌شود (خوانش محافظه‌کارانه؛ هرگز win نگه‌داشته‌شده فرض نمی‌شود). ستون‌های `breakeven_armed`/`breakeven_exit` و `original_stop`/`final_stop` در گزارش‌ها حضور دارند.
+
+### ممیزی سایه revival (فقط مشاهده)
+
+فلگ `--revival-shadow-audit` (پیش‌فرض خاموش، `cfg.revival_shadow_audit`) setupهایی را که با تغییر Trend لغو شده‌اند صرفاً به‌صورت سایه دنبال می‌کند: OB باید معتبر بماند، trend باید حداکثر تا ۱۲ کندل بسته برگردد (bucketهای 3/6/12)، پس از بازگشت یک sweep+reclaim تازه لازم است و هر OB فقط یک‌بار revive می‌شود؛ fill فرضی با close±fallback_spread و SL-first جلو می‌رود. خروجی فقط شمارنده‌ها/رخدادهاست و هرگز سفارش، fill یا PnL واقعی نمی‌سازد.
 
 ### Replay کندلی
 
@@ -110,7 +121,7 @@ OHLC ورودی Bid فرض شده است. spread fallback برای سمت Ask ا
 
 برای کارایی replayهای بزرگ، tick CSV با index ستون‌های خوانده‌شده از header و bucket مستقیم UTC پردازش می‌شود؛ بنابراین برای هر Tick شیء datetime ساخته نمی‌شود. `run_tick_risk_comparison.py` چند ماه را پیوسته با یک replay قیمت اجرا می‌کند و مدل‌هایی را که فقط sizing را تغییر می‌دهند روی همان sequence معامله، با volume rounding و equity compounding مستقل، بازسازی می‌کند.
 
-`fixed_rr` هدف را با فاصله stop ضربدر RR می‌سازد. `m5_liquidity_min_rr` فقط وقتی نزدیک‌ترین liquidity سطح reward حداقل RR را بدهد آن سطح را جایگزین می‌کند. `sweep_reclaim` به‌جای limit، sweep کامل OB و close برگشتی همان کندل را می‌خواهد و stop را با ATR buffer گسترش می‌دهد.
+`fixed_rr` هدف را با فاصله stop ضربدر RR می‌سازد. `m5_liquidity_min_rr` فقط وقتی نزدیک‌ترین liquidity سطح reward حداقل RR را بدهد آن سطح را جایگزین می‌کند. `sweep_reclaim` به‌جای limit، sweep **لبه ورود** OB (نه stop آن) و سپس close برگشتی را می‌خواهد و stop را با ATR buffer گسترش می‌دهد؛ با `sweep_reclaim_max_bars` (پیش‌فرض 1 = رفتار تک‌کندلی قبلی، CLI: `--sweep-reclaim-max-bars`) پنجره reclaim می‌تواند تا N کندل پس از sweep باز بماند. fill همچنان فقط با نخستین تیک مجاز بعد از تأیید انجام می‌شود.
 
 ## 6. ریسک و حجم
 
@@ -178,13 +189,17 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 | `daily_reports/forward_test_breakdown.csv` | گروه‌بندی تشخیصی فیلترها |
 | `paper_report.html` | گزارش نهایی هنگام shutdown |
 
-داشبورد HTTP فقط روی `127.0.0.1:8765` پیش‌فرض سرو می‌شود. HTML هر 30 ثانیه browser refresh دارد، اما محاسبه آن هر 5 دقیقه و breakdown هر 15 دقیقه است. `ReportWorker` صف تک‌عضوی دارد؛ اگر report قبلی هنوز در حال ساخت باشد درخواست جدید drop می‌شود تا tick loop متوقف نشود.
+داشبورد HTTP فقط روی `127.0.0.1:8765` پیش‌فرض سرو می‌شود. HTML هر 30 ثانیه browser refresh دارد، اما محاسبه آن هر 5 دقیقه و breakdown هر 15 دقیقه است. `ReportWorker` صف با ظرفیت ۲ دارد؛ درخواست میان‌دوره‌ای وقتی صف پر باشد drop می‌شود تا tick loop متوقف نشود، اما گزارش نهایی shutdown با `submit(..., block=True)` منتظر جای خالی می‌ماند و هرگز drop نمی‌شود (پیش‌تر این تضمین فقط در کامنت ادعا شده بود و snapshot پایانی می‌توانست به‌سکوت گم شود).
+
+`export_html` زمان باز شدن معاملات را با `format="ISO8601"` می‌خواند تا مخلوط ثانیه‌های اعشاری/صحیح منابع tick خطا ندهد؛ جدول‌ها در ظرف اسکرول افقی با هدر sticky رندر می‌شوند و نمودار equity برچسب‌های high/low/آخرین مقدار را دارد.
 
 ## 10. ارسال Demo و مرز ایمنی
 
 `DemoExecutor` تنها بخش دارای `order_send` است. بدون `--demo-orders` ساخته نمی‌شود. در زمان اتصال، حساب غیر-Demo رد می‌شود. ورود market با volume/SL/TP مجازی mirror و ticket در meta ذخیره می‌شود؛ خروج با ticket یا comment مربوط به position پیدا و با سفارش مخالف بسته می‌شود. paper ledger منبع تصمیم است؛ slippage واقعی demo جداگانه ثبت می‌شود.
 
 پیش از ورود Demo، حجم از مقدار برنامه‌ریزی‌شده رو به پایین و بر مبنای `volume_step` جست‌وجو می‌شود. هر کاندید باید هم `order_calc_margin <= 80% free margin` و هم `order_check` موفق داشته باشد؛ اگر حتی `volume_min` مجاز نباشد سفارش رد و Paper fill rollback می‌شود. مقدار ۸۰٪ با `demo_max_free_margin_fraction` قابل تنظیم است.
+
+`modify_stop` تنها مسیر تغییر SL سمت broker است و فقط برای mirror کردن breakeven صدا زده می‌شود؛ چون `TRADE_ACTION_SLTP` هر دو سطح را جایگزین می‌کند، TP بدون تغییر دوباره ارسال می‌شود تا پاک نشود. نتیجه (`demo_breakeven_status`) و خطای احتمالی در meta و event log ثبت می‌شود.
 
 پس از پذیرش سفارش، entry، volume و risk ledger با `result.price/result.volume` واقعی بازسازی می‌شوند؛ target ارسال‌شده تغییر نمی‌کند و RR واقعی دوباره محاسبه می‌شود. هنگام خروج نیز exit، PnL، R و equity با اجرای واقعی Demo بازقیمت‌گذاری می‌شوند. اگر SL/TP قبلاً در broker بسته شده باشد، history deal همان position برای بازیابی actual exit خوانده می‌شود. قیمت‌ها و مقادیر قبل/بعد از sync در meta و CSV باقی می‌مانند.
 
@@ -218,7 +233,7 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 
 ### `config.py` (1–191)
 
-- `BotConfig`: قرارداد مرکزی پارامترهای strategy، risk، persistence، capture، reporting، dashboard و سقف مصرف free-margin در Demo. `trend_swing_length` (پیش‌فرض 12) و `entry_pivot_left`/`entry_pivot_right` (پیش‌فرض 5/5) دو فیلد مستقل‌اند؛ `swing_length` فقط یک `InitVar` سازگاری قدیمی است.
+- `BotConfig`: قرارداد مرکزی پارامترهای strategy، risk، persistence، capture، reporting، dashboard و سقف مصرف free-margin در Demo. `trend_swing_length` (پیش‌فرض 12) و `entry_pivot_left`/`entry_pivot_right` (پیش‌فرض 5/5) دو فیلد مستقل‌اند؛ `swing_length` فقط یک `InitVar` سازگاری قدیمی است. فیلدهای جدیدتر: `sweep_reclaim_max_bars` (پیش‌فرض 1)، `revival_shadow_audit` (پیش‌فرض False، فقط مشاهده)، `max_entry_pivot_age_bars` (پیش‌فرض None) و `breakeven_trigger_r` (پیش‌فرض None). `max_open_positions` معنای burst-fill دارد (بخش ۵)؛ کامنت کنار validate این قرارداد را مستند می‌کند و مقدار >۱ مجاز است.
 - `__post_init__`، 94–99: اگر `swing_length=` صریح داده شده باشد، مقدارش را روی `trend_swing_length` می‌نشاند؛ در غیر این صورت تغییری نمی‌دهد.
 - `validate`، 101–175: invariantها؛ M5-only، بازه Trend Swing و Entry Pivot، exclusivity مدل ریسک و صحت timer/port/demo.
 - انتهای فایل (177–191): alias خواندنی `swing_length` عمداً **بیرون** از بدنه کلاس، به‌صورت `BotConfig.swing_length = property(...)` روی کلاس نهایی نصب می‌شود. دلیل: تعریف یک `@property` هم‌نام با `InitVar` داخل بدنه کلاس، مقدار پیش‌فرض `None` آن `InitVar` را در namespace کلاس (که `@dataclass(slots=True)` هنگام decorate کردن از همان‌جا می‌خواند) با خودِ آبجکت property جایگزین می‌کرد؛ نتیجه این بود که هر `BotConfig()` بدون `swing_length=` صریح، مقدار `trend_swing_length` را به یک آبجکت `property` (نه عدد صحیح) خراب می‌کرد. این باگ واقعی در همین نشست کشف و اصلاح شد.
@@ -244,7 +259,7 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 ### `pine_engine.py` (1–164)
 
 - `__init__`، 12–24: آرایه‌های سری زمانی و state leg/trend/swing/OB.
-- `process`، 26–71: dedupe، TR/ATR، volatility parsing، pivot update، شکست close، OB و invalidation.
+- `process`، 26–82: dedupe، TR/ATR، volatility parsing، pivot update، شکست close، OB و invalidation؛ trim انتهایی لیست OB فقط تاریخچه غیرفعال را کوتاه می‌کند و OB فعال هرگز حذف نمی‌شود (بخش ۴).
 - `_next_atr`، 73–82: seed SMA و سپس RMA.
 - `_update_swing`، 84–102: تأیید delayed pivot (بر اساس `cfg.trend_swing_length`) و تغییر leg. این تابع همچنان فقط Trend Swing/Major BOS-CHoCH را می‌سازد؛ Entry Pivot کاملاً جدا در `entry_pivot.py` پیاده شده است.
 - `_make_ob`، 104–118: extreme مسیر pivot-to-break و ساخت OB.
@@ -262,7 +277,9 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 - `cancel_ob`، 206–210: invalidation متناظر pending.
 - `update_m5_trend`، 212–246: اعمال Trend State جدید (از `PineSwingOBEngine.trend`) و لغو هر pending فعال ناسازگار.
 - `reconcile_*`، 248–271: سازگاری pending پس از restart/config change.
-- `process_tick`: خروج‌ها، Bid/Ask، spread guard تطبیقی، limit fill و ظرفیت position.
+- `process_tick`: خروج‌ها، Bid/Ask، spread guard تطبیقی، limit fill و ظرفیت position (burst-fill)؛ pending عبورکرده از stop با `lifecycle_state="invalidated"` غیرفعال می‌شود.
+- `_apply_breakeven`/`breakeven_events`: انتقال یک‌باره SL به ورود در آستانه `breakeven_trigger_r` و صف رخداد برای app.
+- `_revival_shadow_on_candle`/`revival_shadow`/`shadow_positions`: ممیزی سایه setupهای لغوشده با trend (فقط مشاهده، بخش ۵)؛ state آن در snapshot ذخیره/بازیابی می‌شود.
 - `process_signal_candle`: به‌روزرسانی market index و lifecycle بدون fill/close؛ در `sweep_reclaim` فقط تأیید reclaim برای fill تیکی بعدی.
 - `apply_demo_entry`/`apply_demo_exit`: بازسازی risk/PnL/R/equity با price و volume تأییدشده MT5.
 - `process_candle`، 144–201: fallback OHLC، spread، no-lookahead و SL-first.
@@ -279,11 +296,11 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 - `PaperApp.__init__`، 31–92: validation، logging، MT5/account، ساخت تمام سرویس‌ها شامل `self.entry_pivot = ClassicEntryPivotDetector(cfg.entry_pivot_left, cfg.entry_pivot_right)` و `self.broker.enable_entry_pivot_gate()` بلافاصله بعد از ساخت broker، و dashboard.
 - `restore_or_bootstrap`، 94–173: restore/replay یا warm-up بدون PnL تاریخی؛ در هر دو مسیر بلافاصله بعد از `update_m5_trend` نوبت `entry_pivot.process(candle)` و `broker.update_entry_pivot` می‌رسد و state آن هم از/به `StateStore` بازیابی/ذخیره می‌شود.
 - `on_closed_candle`، 175–220: ترتیب ثابت هر کندل بسته: signal/context → `engine.process` → `update_m5_trend` (لغو pendingهای ناسازگار) → `entry_pivot.process`/`update_entry_pivot` → ساخت OB/سفارش جدید → save؛ بدون اجرای معامله (اجرای معامله فقط با tick است).
-- `on_tick`: dedupe/staleness، paper execution، انتقال state تأیید Demo و ثبت trade.
+- `on_tick`: dedupe/staleness، paper execution، انتقال state تأیید Demo و ثبت trade؛ سپس `_drain_breakeven_events` هر SL منتقل‌شده به breakeven را log/persist و در حالت Demo با `modify_stop` به MT5 mirror می‌کند (خطا در meta و event ثبت می‌شود، دقیقاً یک‌بار per position).
 - `_reconcile_demo_positions`: تطبیق read-only پوزیشن‌های Paper/MT5 در startup و ثبت missing/orphan.
-- `run`: scheduler سبک با تقدم catch-up کندل بر tick، report و shutdown قطعی.
-- `_refresh_daily_report`، 275–284: rollover روز و timer گزارش.
-- `_export_daily_report`، 286–318: snapshot کم‌هزینه و submit به worker.
+- `run`: scheduler سبک با تقدم catch-up کندل بر tick، report و shutdown قطعی؛ در `finally` گزارش نهایی با `block=True` submit می‌شود تا هرگز drop نشود.
+- `_refresh_daily_report`: rollover روز و timer گزارش؛ پارامتر `block` را به export پایین‌دستی pass می‌کند.
+- `_export_daily_report`: snapshot کم‌هزینه و submit به worker (با `block=block`).
 - `_write_daily_reports`، 320–345: تولید HTML/CSV روزانه و تجمعی در thread worker.
 - `_save`، 347–359: trim/rebase و snapshot همه contextها.
 - helperهای 361–380: update M15/liquidity و snapshotهای formation/fill/setup.
@@ -303,11 +320,11 @@ SQLite سه نوع داده را نگه می‌دارد: snapshot اتمیک sta
 
 - `storage.py`: `__init__` schema، `load/save` snapshot اتمیک، `record_event`, `record_trade`, `event_counts`, `close`.
 - `market_recorder.py`: مسیر روزانه، dedupe آخرین row و append tick/candle.
-- `historical.py`: load CSV، ساخت `PineSwingOBEngine` و `ClassicEntryPivotDetector` جدا از `PaperApp` ولی از همان کلاس‌ها و با همان ترتیب (`update_m5_trend` سپس `entry_pivot.process` سپس `add_ob`)، `broker.enable_entry_pivot_gate()` بلافاصله بعد از ساخت broker، spread ثابت، شمارش `major_bos_count`/`major_choch_count`/`major_swing_highs/lows` و تولید `summary` گسترده‌شده (شامل `trend_swing_length`, `entry_pivot_left/right`, `entry_pivot_highs/lows`, `buy_setups`/`sell_setups`, `setups_rejected_trend_mismatch/neutral_trend/no_entry_pivot`, `pending_orders_created/cancelled_trend_change`, `filled_orders`, `closed_trades`, `average_r`, `max_drawdown`) و خروجی نام‌گذاری‌شده.
-- `tick_historical.py`: خواندن streaming تیک‌های روزانه، ساخت M5 Bid، همان `ClassicEntryPivotDetector` بلافاصله بعد از `update_m5_trend` در `close_bar`، warm-up غیرقابل‌معامله و اجرای tick-level همان engine/context/broker؛ `summary` نیز `trend_swing_length`/`entry_pivot_left/right`/`buy_setups`/`sell_setups` را اضافه می‌کند.
-- `tools/run_tick_backtest.py`: CLI روی `tick_historical.run_tick_historical`. همان `build_parser`/`resolve_swing_settings`/`build_config`/`main` الگوی `run_pine_ob_paper.py` را دارد و `--choch-risk-cap`/`--fixed-risk` را از همان `pine_ob_bot/cli_risk.py` resolve/validate می‌کند؛ `main` بلافاصله بعد از `parser.parse_args` و **پیش از** glob کردن فایل‌های تیک ماه، `validate_fixed_risk_args` را صدا می‌زند تا ترکیب متناقض پیش از هر I/O متوقف شود.
-- `report_worker.py`: thread daemon و queue ظرفیت یک؛ `submit` non-blocking، `close` join، `_run` اجرای callback و log خطا.
-- `reporting.py`: `export_daily_html/metrics` فیلتر timezone؛ `export_reports` trade/summary؛ `export_breakdown` گروه‌های تشخیصی؛ `export_html` داشبورد self-contained؛ helperهای group/equity/bucket.
+- `historical.py`: load CSV، ساخت `PineSwingOBEngine` و `ClassicEntryPivotDetector` جدا از `PaperApp` ولی از همان کلاس‌ها و با همان ترتیب (`update_m5_trend` سپس `entry_pivot.process` سپس `add_ob`)، `broker.enable_entry_pivot_gate()` بلافاصله بعد از ساخت broker، spread ثابت، شمارش `major_bos_count`/`major_choch_count`/`major_swing_highs/lows` و تولید `summary` گسترده‌شده (شامل `trend_swing_length`, `entry_pivot_left/right`, `entry_pivot_highs/lows`, `buy_setups`/`sell_setups`, `setups_rejected_trend_mismatch/neutral_trend/no_entry_pivot`, `pending_orders_created/cancelled_trend_change`, `filled_orders`, `closed_trades`, `average_r`, `max_drawdown`) و خروجی نام‌گذاری‌شده. پس از پایان حلقه، flush نهایی رخدادهای `rejected_sizing`/`trend_events` تولیدشده روی آخرین کندل را به لاگ می‌رساند (پیش‌تر فقط ردیف‌های لاگ همین رویدادها به‌سکوت گم می‌شدند؛ شمارنده‌های stats درست بودند).
+- `tick_historical.py`: خواندن streaming تیک‌های روزانه، ساخت M5 Bid، همان `ClassicEntryPivotDetector` بلافاصله بعد از `update_m5_trend` در `close_bar`، warm-up غیرقابل‌معامله و اجرای tick-level همان engine/context/broker؛ `close_bar` اکنون state کندلی را از `process_signal_candle` عبور می‌دهد (همان مسیر Live: market_index، lifecycle و تأیید sweep_reclaim، بدون look-ahead). `summary` نیز `trend_swing_length`/`entry_pivot_left/right`/`buy_setups`/`sell_setups` را اضافه می‌کند.
+- `tools/run_tick_backtest.py`: CLI روی `tick_historical.run_tick_historical`. همان `build_parser`/`resolve_swing_settings`/`build_config`/`main` الگوی `run_pine_ob_paper.py` را دارد و `--choch-risk-cap`/`--fixed-risk` را از همان `pine_ob_bot/cli_risk.py` resolve/validate می‌کند؛ `main` بلافاصله بعد از `parser.parse_args` و **پیش از** glob کردن فایل‌های تیک ماه، `validate_fixed_risk_args` را صدا می‌زند تا ترکیب متناقض پیش از هر I/O متوقف شود. پیش‌فرض این runner **BOS-only** است (`--include-choch` برای برگرداندن CHoCH؛ برخلاف runner زنده) و `--month all` همه دایرکتوری‌های ماه دارای دیتا را پشت‌سرهم replay می‌کند.
+- `report_worker.py`: thread daemon و queue ظرفیت ۲؛ `submit` به‌طور پیش‌فرض non-blocking است و با `block=True` (فقط گزارش نهایی shutdown) منتظر جای خالی می‌ماند؛ `close` sentinel و join، `_run` اجرای callback و log خطا.
+- `reporting.py`: `export_daily_html/metrics` فیلتر timezone؛ `export_reports` trade/summary؛ `export_breakdown` گروه‌های تشخیصی (شامل `breakeven_armed`/`breakeven_exit`)؛ `export_html` داشبورد self-contained با پارس `ISO8601` زمان‌ها، جدول‌های اسکرول‌پذیر با هدر sticky و نمودار equity برچسب‌دار؛ helperهای group/equity/bucket.
 - `dashboard_server.py`: HTTP server thread، index redirect و shutdown.
 - `__init__.py`: export عمومی مدل‌ها و config.
 
@@ -333,7 +350,7 @@ python tools/fetch_mt5_ticks.py --month 2026-06 --month 2026-05
 python tools/run_tick_backtest.py --month 2026-06
 ```
 
-سوییچ‌های مهم: `--trend-swing-length` (جایگزین توصیه‌شده `--swing-length` که همچنان به‌عنوان alias قدیمی کار می‌کند)، `--entry-pivot-left`, `--entry-pivot-right`, `--rr`, `--bos-only`, `--include-choch`, `--fixed-risk`, `--choch-risk-cap`, `--target-mode`, `--entry-mode`, `--min-entry-wait`, `--max-positions`, `--no-market-capture`, `--no-dashboard`, `--db` (پیش‌فرض خودکار از روی Trend Swing/Entry Pivot)، `--run-label` (پیش‌فرض خودکار مشابه). `tools/run_tick_backtest.py` همین سوییچ‌های ریسک را با همان معنا می‌پذیرد؛ فقط `--once`/`--db`/`--backtest` که مخصوص اجرای زنده/OHLC است را ندارد (به‌جایش `--month`/`--data-root`/`--out`).
+سوییچ‌های مهم: `--trend-swing-length` (جایگزین توصیه‌شده `--swing-length` که همچنان به‌عنوان alias قدیمی کار می‌کند)، `--entry-pivot-left`, `--entry-pivot-right`, `--max-entry-pivot-age`, `--rr`, `--bos-only`, `--include-choch`, `--fixed-risk`, `--choch-risk-cap`, `--breakeven-at-r`, `--target-mode`, `--entry-mode`, `--sweep-reclaim-max-bars`, `--revival-shadow-audit`, `--min-entry-wait`, `--max-positions`, `--no-market-capture`, `--no-dashboard`, `--db` (پیش‌فرض خودکار از روی Trend Swing/Entry Pivot)، `--run-label` (پیش‌فرض خودکار مشابه). `tools/run_tick_backtest.py` همین سوییچ‌های ریسک را با همان معنا می‌پذیرد؛ فقط `--once`/`--db`/`--backtest` که مخصوص اجرای زنده/OHLC است را ندارد (به‌جایش `--month YYYY-MM|all`/`--data-root`/`--out`) و پیش‌فرض آن BOS-only است.
 
 نکته سازگاری: اگر هم `--swing-length` و هم `--trend-swing-length` داده شوند و مقدارشان متفاوت باشد، runner با خطای صریح متوقف می‌شود؛ اگر برابر باشند مجاز است.
 
@@ -341,7 +358,7 @@ python tools/run_tick_backtest.py --month 2026-06
 
 ## 13. تست، محدودیت و performance
 
-تست‌ها pivot/ATR/BOS/CHoCH/OB، Bid/Ask و gap، SL-first، position sizing، restart، contextها، demo guard، recorder، dashboard و report worker را پوشش می‌دهند. `tests/test_fixed_risk_cli.py` جداگانه resolve/validate مشترک `--fixed-risk`/`--choch-risk-cap` را روی هر دو parser واقعی (`run_pine_ob_paper.py` و `tools/run_tick_backtest.py`) و اثر واقعی آن (نرخ ریسک یکسان BOS/CHoCH بدون سقف) را از مسیر واقعی `PaperBroker` بدون mock می‌سنجد. دستور پذیرش:
+تست‌ها pivot/ATR/BOS/CHoCH/OB، Bid/Ask و gap، SL-first، position sizing، restart، contextها، demo guard، recorder، dashboard و report worker را پوشش می‌دهند. تست‌های رگرسیون جدیدتر در `pine_ob_bot/tests/` نیز breakeven (`test_breakeven.py`)، پنجره چندکندلی sweep/reclaim (`test_sweep_reclaim_window.py`)، مسیر tick runner برای sweep_reclaim (`test_sweep_reclaim_tick_runner.py`)، ممیزی سایه revival (`test_revival_shadow_audit.py`) و gate تازگی Entry Pivot (`test_entry_pivot_freshness.py`) را پوشش می‌دهند. `tests/test_fixed_risk_cli.py` جداگانه resolve/validate مشترک `--fixed-risk`/`--choch-risk-cap` را روی هر دو parser واقعی (`run_pine_ob_paper.py` و `tools/run_tick_backtest.py`) و اثر واقعی آن (نرخ ریسک یکسان BOS/CHoCH بدون سقف) را از مسیر واقعی `PaperBroker` بدون mock می‌سنجد. دستور پذیرش:
 
 ```powershell
 python -m unittest discover -s tests -q

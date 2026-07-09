@@ -412,6 +412,7 @@ class PaperBroker:
             invalid = px <= order.stop if order.direction == "bull" else px >= order.stop
             if invalid:
                 order.active = False
+                order.lifecycle_state = "invalidated"
                 continue
             if self.cfg.entry_mode == "sweep_reclaim":
                 # The closed candle confirms the setup, but the next live tick
@@ -422,6 +423,7 @@ class PaperBroker:
                 distance = abs(px - order.stop)
                 if distance <= 0:
                     order.active = False
+                    order.lifecycle_state = "invalidated"
                     continue
                 target = (px + self.cfg.rr * distance if order.direction == "bull"
                           else px - self.cfg.rr * distance)
