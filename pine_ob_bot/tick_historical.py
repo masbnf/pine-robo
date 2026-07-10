@@ -14,7 +14,7 @@ from .models import Candle, Tick
 from .mtf_context import M15Context
 from .paper import PaperBroker, SymbolSpec
 from .pine_engine import PineSwingOBEngine
-from .reporting import export_breakdown, export_html, export_reports
+from .reporting import export_breakdown, export_html, export_reports, experimental_summary
 from .structure_context import ChochContext, DisplacementContext, displacement_snapshot
 from .trend_filter import trend_from_engine_state
 
@@ -171,7 +171,15 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
                 {"source files": len(paths), "ticks": ticks, "closed M5": len(engine.candles),
                  "warmup bars": warmup_bars, "trend swing": cfg.trend_swing_length,
                  "entry pivot": f"{cfg.entry_pivot_left}/{cfg.entry_pivot_right}", "RR": cfg.rr,
-                 "breaks": "+".join(cfg.allowed_break_kinds)})
+                 "breaks": "+".join(cfg.allowed_break_kinds),
+                 "max entry pivot age": cfg.max_entry_pivot_age_bars,
+                 "sweep window bars": cfg.sweep_reclaim_max_bars,
+                 "controlled revival": cfg.controlled_revival,
+                 "ob re-entry": cfg.allow_ob_reentry,
+                 "spread wait": cfg.wait_for_spread_after_confirmation,
+                 "max positions": cfg.max_open_positions,
+                 "portfolio risk cap": cfg.portfolio_risk_cap})
+    summary.update(experimental_summary(broker))
     summary.update({"ticks": ticks, "bars": len(engine.candles), "files": len(paths),
                     "warmup_bars": warmup_bars,
                     "trend_swing_length": cfg.trend_swing_length,

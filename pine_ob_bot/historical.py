@@ -11,7 +11,7 @@ from .mtf_context import M15Context
 from .liquidity_context import LiquidityTracker
 from .paper import PaperBroker, SymbolSpec
 from .pine_engine import PineSwingOBEngine
-from .reporting import export_breakdown, export_html, export_reports
+from .reporting import export_breakdown, export_html, export_reports, experimental_summary
 from .storage import StateStore
 from .structure_context import ChochContext, DisplacementContext, displacement_snapshot
 from .trend_filter import trend_from_engine_state
@@ -195,7 +195,7 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                     "pending_orders_cancelled_trend_change": broker.stats.get("cancelled_trend_change", 0),
                     "filled_orders": len(filled_ids), "closed_trades": len(broker.trades),
                     "average_r": average_r, "max_drawdown": broker.max_drawdown,
-                    **broker.stats})
+                    **broker.stats, **experimental_summary(broker)})
     age_samples = broker.stats.get("entry_pivot_age_samples", 0)
     summary["avg_entry_pivot_age_bars"] = (
         round(broker.stats.get("entry_pivot_age_sum_bars", 0) / age_samples, 2)
@@ -215,7 +215,12 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                  "entry mode": cfg.entry_mode,
                  "sweep ATR buffer": cfg.sweep_reclaim_atr_buffer,
                  "lifecycle": "event-driven" if cfg.entry_lifecycle_enabled else "off",
-                 "max positions": cfg.max_open_positions})
+                 "max positions": cfg.max_open_positions,
+                 "sweep window bars": cfg.sweep_reclaim_max_bars,
+                 "controlled revival": cfg.controlled_revival,
+                 "ob re-entry": cfg.allow_ob_reentry,
+                 "spread wait": cfg.wait_for_spread_after_confirmation,
+                 "portfolio risk cap": cfg.portfolio_risk_cap})
     import csv
     with summary_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(summary)); writer.writeheader(); writer.writerow(summary)

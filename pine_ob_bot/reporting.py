@@ -138,6 +138,49 @@ def export_reports(broker: PaperBroker, trades_path: Path, summary_path: Path) -
     return summary
 
 
+def experimental_summary(broker: PaperBroker) -> dict:
+    """Config echo + derived averages for the flag-gated experiments.
+
+    Merged into both backtest runners' summaries so every run records the
+    full experimental configuration (spec: the report must contain it) and
+    the spread-wait averages. All values are well-defined with the flags
+    off (config echoes read False/None, averages read None).
+    """
+    cfg = broker.cfg
+    stats = broker.stats
+    started = stats.get("spread_wait_started", 0)
+    filled = stats.get("spread_wait_eventually_filled", 0)
+    open_risk = sum(item.risk_money for item in broker.positions)
+    return {
+        "controlled_revival": cfg.controlled_revival,
+        "revival_max_return_bars": cfg.revival_max_return_bars if cfg.controlled_revival else None,
+        "revival_require_fresh_sweep": cfg.revival_require_fresh_sweep if cfg.controlled_revival else None,
+        "revival_max_per_ob": cfg.revival_max_per_ob if cfg.controlled_revival else None,
+        "allow_ob_reentry": cfg.allow_ob_reentry,
+        "max_entries_per_ob": cfg.max_entries_per_ob if cfg.allow_ob_reentry else None,
+        "min_reentry_wait_bars": cfg.min_reentry_wait_bars if cfg.allow_ob_reentry else None,
+        "reentry_require_fresh_sweep": cfg.reentry_require_fresh_sweep if cfg.allow_ob_reentry else None,
+        "reentry_after_loss_only": cfg.reentry_after_loss_only if cfg.allow_ob_reentry else None,
+        "wait_for_spread_after_confirmation": cfg.wait_for_spread_after_confirmation,
+        "spread_wait_max_seconds": cfg.spread_wait_max_seconds,
+        "spread_wait_max_ticks": cfg.spread_wait_max_ticks,
+        "spread_wait_max_bars": cfg.spread_wait_max_bars,
+        "portfolio_risk_cap": cfg.portfolio_risk_cap,
+        "sweep_reclaim_max_bars": cfg.sweep_reclaim_max_bars,
+        "avg_spread_wait_seconds": (
+            round(stats.get("spread_wait_duration_seconds_sum", 0.0) / filled, 3)
+            if filled else None),
+        "avg_spread_at_confirmation": (
+            round(stats.get("spread_at_confirmation_sum", 0.0) / started, 5)
+            if started else None),
+        "avg_spread_at_fill": (
+            round(stats.get("spread_at_fill_sum", 0.0) / filled, 5)
+            if filled else None),
+        "current_open_risk_fraction": (
+            round(open_risk / broker.equity, 6) if broker.equity else None),
+    }
+
+
 def export_breakdown(broker: PaperBroker, path: Path) -> None:
     """Write long-form diagnostic groups, convenient for Excel/pandas filters."""
     import pandas as pd
@@ -156,7 +199,11 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                                                       (2.0, "1-2"), (math.inf, "2+")]),
                      "wait_bars_bucket": _bucket(item.get("wait_bars"),
                                                   [(3, "0-2"), (7, "3-6"),
-                                                   (13, "7-12"), (math.inf, "13+")])})
+                                                   (13, "7-12"), (math.inf, "13+")]),
+                     "sweep_lag_bucket": _bucket(item.get("sweep_reclaim_lag_bars"),
+                                                  [(1, "0"), (2, "1"),
+                                                   (math.inf, "2+")]),
+                     "entry_attempt": item.get("ob_entry_attempt")})
         rows.append(item)
     fields = ["direction", "break_kind", "session_utc", "entry_hour", "weekday",
               "month", "ob_width_atr_bucket", "wait_bars_bucket", "m15_trend",
@@ -171,6 +218,11 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
     fields.extend(["target_source", "bos_directional_body",
                    "bos_displacement_top_quartile", "entry_age_top_quartile",
                    "breakeven_armed", "breakeven_exit"])
+    # Experimental trade-frequency dimensions: normal vs revival vs re-entry,
+    # first entry vs re-entry attempt, sweep lag 0/1/2+, spread waited vs
+    # immediate. Groups only materialize when the columns exist in the data.
+    fields.extend(["setup_model", "is_revival", "is_reentry", "entry_attempt",
+                   "sweep_lag_bucket", "spread_waited"])
     output = []
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -283,6 +335,10 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                               ("Target source", "target_source"),
                               ("Breakeven armed", "breakeven_armed"),
                               ("Breakeven exit", "breakeven_exit"),
+                              ("Setup model", "setup_model"),
+                              ("OB entry attempt", "ob_entry_attempt"),
+                              ("Sweep reclaim lag (bars)", "sweep_reclaim_lag_bars"),
+                              ("Spread waited", "spread_waited"),
                               ("BOS directional body", "bos_directional_body"),
                               ("Adaptive BOS displacement", "bos_displacement_top_quartile"),
                               ("Adaptive OB age", "entry_age_top_quartile"),
@@ -306,6 +362,11 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                             "fill_m5_last_choch_alignment", "setup_m5_opposite_sweep",
                             "breakeven_armed", "breakeven_exit",
                             "original_stop", "final_stop",
+                            "setup_model", "is_revival", "revival_attempt",
+                            "is_reentry", "ob_entry_attempt",
+                            "sweep_reclaim_lag_bars", "spread_waited",
+                            "spread_wait_seconds", "open_risk_before_entry",
+                            "projected_open_risk_fraction",
                             "entry_execution_source", "entry_execution_spread",
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",
                             "demo_entry_slippage", "demo_close_price", "demo_exit_slippage"] if x in trades]

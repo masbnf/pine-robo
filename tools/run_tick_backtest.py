@@ -30,6 +30,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from pine_ob_bot.cli_experimental import (add_experimental_arguments, build_run_label,
+                                          experimental_label_tokens,
+                                          resolve_experimental_config,
+                                          validate_experimental_args)
 from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
 from pine_ob_bot.tick_historical import run_tick_historical
@@ -128,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="output label; auto-generated from swing/pivot sizes when omitted")
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
+    add_experimental_arguments(parser)
     return parser
 
 
@@ -157,6 +162,7 @@ def resolve_swing_settings(args: argparse.Namespace,
 
 def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig:
     return BotConfig(
+        **resolve_experimental_config(args),
         symbol=args.symbol,
         rr=args.rr,
 
@@ -209,6 +215,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     validate_fixed_risk_args(parser, args)
+    validate_experimental_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
     if args.month.lower() == "all":
@@ -236,13 +243,16 @@ def main(argv=None) -> int:
 
     cfg = build_config(args, trend_swing_length)
 
-    # Keeps different swing/pivot/symbol runs on the same month from ever
-    # overwriting each other's output files (same idea as run_pine_ob_paper.py's
-    # auto-generated --run-label for --backtest).
-    effective_label = args.run_label or (
-        f"{args.symbol}_{args.month}"
-        f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}"
-    )
+    # Keeps different swing/pivot/symbol/experiment runs on the same month
+    # from ever overwriting each other's output files (same idea as
+    # run_pine_ob_paper.py's auto-generated --run-label for --backtest).
+    # Experimental flags append their own tokens; when the tokenized name
+    # would get unwieldy a stable config hash replaces the tokens.
+    resolved = resolve_experimental_config(args)
+    tokens = experimental_label_tokens(args, resolved)
+    base_label = (f"{args.symbol}_{args.month}"
+                  f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}")
+    effective_label = args.run_label or build_run_label(base_label, tokens, resolved)
 
     print(f"M5 trend swing length: {trend_swing_length}")
     print(f"M5 trend swing confirmation delay: {trend_swing_length * 5} minutes")

@@ -16,6 +16,65 @@ from .trend_filter import (ORDER_CANCELLED_M5_TREND_CHANGED, ORDER_CANCELLED_M5_
                           is_trade_allowed_by_m5_trend, validate_trade_direction)
 
 REJECTED_NO_ENTRY_PIVOT = "REJECTED_NO_ENTRY_PIVOT"
+PORTFOLIO_RISK_CAP_EXCEEDED = "PORTFOLIO_RISK_CAP_EXCEEDED"
+
+
+def _experimental_stats_defaults() -> dict:
+    """Telemetry keys for the flag-gated trade-frequency experiments.
+
+    Present (zero) even with every flag off so summaries/CSVs have stable
+    columns; none of them ever alters execution. Grouped by feature:
+    multi-bar sweep/reclaim extras, controlled revival, controlled re-entry,
+    spread wait, and position/portfolio-risk capacity.
+    """
+    return {
+        "sweep_reclaim_reset_by_deeper_sweep": 0,
+        "sweep_reclaim_cancelled_trend": 0,
+        "sweep_reclaim_cancelled_ob_invalid": 0,
+        "revival_suspended": 0,
+        "revival_trend_returned": 0,
+        "revival_returned_within_3": 0,
+        "revival_returned_within_6": 0,
+        "revival_returned_within_12": 0,
+        "revival_rejected_too_late": 0,
+        "revival_rejected_ob_invalid": 0,
+        "revival_rejected_no_fresh_sweep": 0,
+        "revival_rejected_attempt_limit": 0,
+        "revival_orders_created": 0,
+        "revival_orders_filled": 0,
+        "revival_orders_cancelled": 0,
+        "revival_wins": 0,
+        "revival_losses": 0,
+        "revival_total_r": 0.0,
+        "reentry_candidates": 0,
+        "reentry_rejected_ob_invalid": 0,
+        "reentry_rejected_trend": 0,
+        "reentry_rejected_wait": 0,
+        "reentry_rejected_no_fresh_sweep": 0,
+        "reentry_rejected_attempt_limit": 0,
+        "reentry_orders_created": 0,
+        "reentry_orders_filled": 0,
+        "reentry_wins": 0,
+        "reentry_losses": 0,
+        "reentry_total_r": 0.0,
+        "unique_orders_blocked_by_spread": 0,
+        "spread_wait_started": 0,
+        "spread_wait_eventually_filled": 0,
+        "spread_wait_expired": 0,
+        "spread_wait_cancelled_trend": 0,
+        "spread_wait_cancelled_ob_invalid": 0,
+        "spread_wait_rejected_sizing": 0,
+        "spread_wait_duration_ticks_sum": 0,
+        "spread_wait_duration_seconds_sum": 0.0,
+        "spread_wait_max_duration_seconds": 0.0,
+        "spread_at_confirmation_sum": 0.0,
+        "spread_at_fill_sum": 0.0,
+        "rejected_max_positions": 0,
+        "setups_blocked_max_positions": 0,
+        "rejected_portfolio_risk_cap": 0,
+        "setups_blocked_portfolio_risk": 0,
+        "max_observed_open_risk_fraction": 0.0,
+    }
 
 
 @dataclass(slots=True)
@@ -78,6 +137,28 @@ class PaperBroker:
         # nothing in these two lists can ever create or touch a real order.
         self.revival_shadow: list[dict] = []
         self.shadow_positions: list[dict] = []
+        # --- Experimental trade-frequency state (flag-gated; stays empty and
+        # untouched while the corresponding cfg flags are off). ---
+        # Controlled Revival ledger (cfg.controlled_revival): one record per
+        # trend-cancelled setup eligible for a REAL revival. The old order is
+        # never re-activated; a revival always creates a new PendingOrder.
+        # Kept separate from revival_shadow so --revival-shadow-audit and
+        # --controlled-revival can run together without double counting:
+        # shadow counters stay hypothetical (reactivation_*), real revivals
+        # count only in revival_* and in actual trades.
+        self.revival_records: list[dict] = []
+        # ob_id -> number of revival orders CREATED for it. Persisted and
+        # never reset on restart, so revival_max_per_ob survives a crash.
+        self.revival_attempts: dict[str, int] = {}
+        # ob_id -> entry-attempt bookkeeping for controlled re-entry
+        # (cfg.allow_ob_reentry). "attempts" counts ORDER CREATIONS -- the
+        # original entry is attempt 1 -- so max_entries_per_ob bounds total
+        # attempts even when a re-entry order is cancelled before filling.
+        self.ob_entry_history: dict[str, dict] = {}
+        # OB ids the engine invalidated: the broker-side "is this OB still
+        # valid" source used by revival/re-entry. Populated only while one of
+        # those features is on (unbounded growth is pointless otherwise).
+        self.invalidated_obs: set[str] = set()
         self.stats = {"setups_seen": 0, "rejected_break_kind": 0,
                       "rejected_weak_choch": 0,
                       "early_touch_blocked": 0, "lifecycle_accepted": 0,
@@ -119,7 +200,8 @@ class PaperBroker:
                       "pivot_highs_confirmed": 0,
                       "pivot_lows_confirmed": 0,
                       "buy_setups_created": 0,
-                      "sell_setups_created": 0}
+                      "sell_setups_created": 0,
+                      **_experimental_stats_defaults()}
 
     @property
     def position(self) -> PaperPosition | None:
@@ -221,6 +303,12 @@ class PaperBroker:
                              target, ob.formed_index, ob.formed_time, True,
                              {"break_kind": ob.break_kind,
                               "atr_at_formation": ob.atr_at_formation,
+                              # Original OB edges, immutable references for the
+                              # revival/re-entry experiments (order.stop gets
+                              # ATR-buffered on sweep confirmation, so the raw
+                              # zone boundary must be kept separately).
+                              "ob_entry_price": ob.entry,
+                              "ob_stop_price": ob.stop,
                               "ob_width": risk,
                               "ob_width_atr": risk / ob.atr_at_formation
                               if ob.atr_at_formation else None,
@@ -251,6 +339,12 @@ class PaperBroker:
         self.pending.sort(key=lambda x: (x.created_index, x.created_time))
         setup_counter = "buy_setups_created" if ob.direction == "bull" else "sell_setups_created"
         self.stats[setup_counter] = self.stats.get(setup_counter, 0) + 1
+        if self.cfg.allow_ob_reentry:
+            # The original entry is attempt 1 of max_entries_per_ob.
+            history = self.ob_entry_history.setdefault(ob.id, {"attempts": 0})
+            history["attempts"] = history.get("attempts", 0) + 1
+            order.meta["ob_entry_attempt"] = history["attempts"]
+            order.meta["is_reentry"] = False
         return order
 
     def enable_entry_pivot_gate(self) -> None:
@@ -294,11 +388,27 @@ class PaperBroker:
                 if order.active and self.cfg.entry_mode == "sweep_reclaim":
                     self.stats["sweep_reclaim_invalidated"] = self.stats.get(
                         "sweep_reclaim_invalidated", 0) + 1
+                    if order.meta.get("sweep_reclaim_sweep_index") is not None:
+                        self.stats["sweep_reclaim_cancelled_ob_invalid"] += 1
+                if order.active:
+                    self._note_experimental_cancel(order, "ob_invalid")
                 order.active = False
                 order.lifecycle_state = "invalidated"
         for rec in self.revival_shadow:
             if rec["ob_id"] == ob_id and rec["state"] in ("suspended", "awaiting"):
                 rec["state"] = "dead_ob"
+        if self.cfg.controlled_revival or self.cfg.allow_ob_reentry:
+            self.invalidated_obs.add(ob_id)
+        if self.cfg.controlled_revival:
+            for rec in self.revival_records:
+                if rec["ob_id"] == ob_id and rec["state"] == "suspended":
+                    rec["state"] = "rejected_ob_invalid"
+                    self.stats["revival_rejected_ob_invalid"] += 1
+        if self.cfg.allow_ob_reentry:
+            history = self.ob_entry_history.get(ob_id)
+            if history and history.get("candidate_state") == "waiting":
+                history["candidate_state"] = "rejected_ob_invalid"
+                self.stats["reentry_rejected_ob_invalid"] += 1
 
     def update_m5_trend(self, new_trend: TrendDirection, when: str) -> int:
         """Apply the latest M5 trend (from PineSwingOBEngine.trend) and cancel
@@ -320,6 +430,10 @@ class PaperBroker:
         for order in self._active_pending():
             if is_trade_allowed_by_m5_trend(order.direction, new_trend):
                 continue
+            if (self.cfg.entry_mode == "sweep_reclaim" and
+                    order.meta.get("sweep_reclaim_sweep_index") is not None):
+                self.stats["sweep_reclaim_cancelled_trend"] += 1
+            self._note_experimental_cancel(order, "trend")
             order.active = False
             order.lifecycle_state = "cancelled_trend"
             order.meta.update({"cancellation_reason": reason,
@@ -348,7 +462,42 @@ class PaperBroker:
                     "state": "suspended", "swept": False,
                 })
                 self.stats["trend_suspended"] = self.stats.get("trend_suspended", 0) + 1
+            # Controlled Revival (REAL, flag-gated): remember this setup as
+            # suspended. The cancelled order above stays cancelled forever; a
+            # revival, if it ever happens, builds a brand-new order. Weak
+            # CHoCH is never eligible. Runs independently of the shadow audit
+            # (separate ledgers, separate counters -- no double counting).
+            if (self.cfg.controlled_revival and
+                    self.cfg.entry_mode == "sweep_reclaim" and
+                    self.market_index is not None and
+                    self._revival_eligible_break(order.meta)):
+                if self.revival_attempts.get(order.ob_id, 0) >= self.cfg.revival_max_per_ob:
+                    self.stats["revival_rejected_attempt_limit"] += 1
+                else:
+                    self.revival_records.append({
+                        "parent_order_id": order.id, "ob_id": order.ob_id,
+                        "direction": order.direction,
+                        "entry": order.meta.get("ob_entry_price", order.entry),
+                        "base_stop": order.meta.get("ob_stop_price", order.stop),
+                        "atr": order.meta.get("atr_at_formation") or 0.0,
+                        "break_kind": order.meta.get("break_kind"),
+                        "strong_choch": bool(order.meta.get("bos_displacement_top_quartile")),
+                        "cancel_index": self.market_index,
+                        "cancel_time": when,
+                        "state": "suspended",
+                        "parent_meta_keys": None,
+                    })
+                    self.stats["revival_suspended"] += 1
         return cancelled
+
+    def _revival_eligible_break(self, meta: dict) -> bool:
+        """Revival follows the original setup's break kind: BOS always, CHoCH
+        only when it was a strong (top-quartile displacement) CHoCH. A weak
+        CHoCH is never revived under any configuration."""
+        kind = meta.get("break_kind")
+        if kind == "BOS":
+            return True
+        return kind == "CHoCH" and bool(meta.get("bos_displacement_top_quartile"))
 
     def reconcile_entry_filters(self) -> int:
         """Cancel restored pending orders that the current strategy disallows."""
@@ -399,7 +548,10 @@ class PaperBroker:
         slots = self.cfg.max_open_positions - len(self.positions)
         for order in self._active_pending():
             if slots <= 0:
-                break
+                # Telemetry only: remaining fill-eligible orders stay active
+                # and simply retry on a later tick, exactly as before.
+                self._count_max_positions_block(order)
+                continue
             if order.lifecycle_state != "armed":
                 continue
             if (self.market_index is not None and
@@ -419,6 +571,7 @@ class PaperBroker:
                 # supplies the only executable fill price.
                 if not self._entry_spread_allowed(order, spread):
                     self.stats["spread_entry_blocked"] += 1
+                    self._spread_wait_on_block(order, tick, spread)
                     continue
                 distance = abs(px - order.stop)
                 if distance <= 0:
@@ -427,19 +580,28 @@ class PaperBroker:
                     continue
                 target = (px + self.cfg.rr * distance if order.direction == "bull"
                           else px - self.cfg.rr * distance)
-                if self._open(order, px, tick.time, None, "tick", spread,
-                              stop=order.stop, target=target) is not None:
+                position = self._open(order, px, tick.time, None, "tick", spread,
+                                      stop=order.stop, target=target)
+                if position is not None:
                     self.stats["sweep_reclaim_filled"] = self.stats.get(
                         "sweep_reclaim_filled", 0) + 1
+                    self._spread_wait_finalize(position, tick, spread)
                     slots -= 1
+                else:
+                    self._spread_wait_after_reject(order)
                 continue
             fill = px <= order.entry if order.direction == "bull" else px >= order.entry
             if fill:
                 if not self._entry_spread_allowed(order, spread):
                     self.stats["spread_entry_blocked"] += 1
+                    self._spread_wait_on_block(order, tick, spread)
                     continue
-                if self._open(order, px, tick.time, None, "tick", spread) is not None:
+                position = self._open(order, px, tick.time, None, "tick", spread)
+                if position is not None:
+                    self._spread_wait_finalize(position, tick, spread)
                     slots -= 1
+                else:
+                    self._spread_wait_after_reject(order)
         self._observe_spread(spread)
         return closed
 
@@ -457,6 +619,7 @@ class PaperBroker:
             return
         if self.cfg.revival_shadow_audit:
             self._revival_shadow_on_candle(candle, bar_index)
+        self._experimental_on_candle(candle, bar_index)
         for order in self._active_pending():
             if order.lifecycle_state != "armed":
                 continue
@@ -489,6 +652,11 @@ class PaperBroker:
         eligible on their formation candle, preventing look-ahead.
         """
         self.market_index = bar_index
+        # Same experimental per-bar driver as the tick path, so Controlled
+        # Revival / Re-entry behave identically on OHLC replay. Runs before
+        # exits/fills; orders it creates carry created_index=bar_index and
+        # therefore cannot fill on this same bar (min-wait guard).
+        self._experimental_on_candle(candle, bar_index)
         closed: list[Trade] = []
         if self.positions:
             for p in list(self.positions):
@@ -513,7 +681,9 @@ class PaperBroker:
         slots = self.cfg.max_open_positions
         for order in self._active_pending():
             if slots <= 0:
-                break
+                # Telemetry only: the order stays active and retries later.
+                self._count_max_positions_block(order)
+                continue
             if order.lifecycle_state != "armed":
                 continue
             age = bar_index - order.created_index
@@ -734,15 +904,27 @@ class PaperBroker:
         window = max(1, self.cfg.sweep_reclaim_max_bars)
         if sweep_index is not None and bar_index - sweep_index >= window:
             order.meta.pop("sweep_reclaim_sweep_index", None)
+            order.meta.pop("sweep_reclaim_sweep_price", None)
             self.stats["sweep_reclaim_window_expired"] = self.stats.get(
                 "sweep_reclaim_window_expired", 0) + 1
             sweep_index = None
         if swept_now:
-            # Count sweep EPISODES: a deeper sweep inside an open window
-            # refreshes the deadline without re-counting.
+            # Count sweep EPISODES: any later bar that wicks back through the
+            # entry edge while the window is open restarts the deadline (a
+            # deeper sweep is the canonical case) without re-counting the
+            # episode; sweep_reclaim_reset_by_deeper_sweep counts the restarts.
+            extreme = candle.low if order.direction == "bull" else candle.high
             if sweep_index is None:
                 self.stats["sweep_reclaim_entry_swept"] = self.stats.get(
                     "sweep_reclaim_entry_swept", 0) + 1
+                order.meta["sweep_reclaim_sweep_price"] = extreme
+            else:
+                if bar_index > sweep_index:
+                    self.stats["sweep_reclaim_reset_by_deeper_sweep"] += 1
+                previous = order.meta.get("sweep_reclaim_sweep_price", extreme)
+                order.meta["sweep_reclaim_sweep_price"] = (
+                    min(previous, extreme) if order.direction == "bull"
+                    else max(previous, extreme))
             sweep_index = bar_index
             order.meta["sweep_reclaim_sweep_index"] = bar_index
         if sweep_index is None:
@@ -756,7 +938,12 @@ class PaperBroker:
                "sweep_reclaim_lag1_confirms" if lag == 1 else
                "sweep_reclaim_lag2plus_confirms")
         self.stats[key] = self.stats.get(key, 0) + 1
+        order.meta.update({"sweep_index": sweep_index,
+                           "reclaim_index": bar_index,
+                           "sweep_price": order.meta.get("sweep_reclaim_sweep_price"),
+                           "sweep_reclaim_max_bars": window})
         order.meta.pop("sweep_reclaim_sweep_index", None)
+        order.meta.pop("sweep_reclaim_sweep_price", None)
         return True, lag
 
     def _try_sweep_reclaim(self, order: PendingOrder, candle: Candle,
@@ -769,6 +956,25 @@ class PaperBroker:
         close + spread while a short enters at close. The target remains
         fixed-RR so this experiment changes entry confirmation only.
         """
+        if order.meta.get("sweep_reclaim_confirmed"):
+            # Only experimental revival/re-entry orders created with
+            # require_fresh_sweep=False arrive here pre-confirmed (the legacy
+            # OHLC path never sets this meta); their stop was already
+            # ATR-buffered at creation. Fill at this bar's close, like the
+            # tick path fills at the next tick.
+            fill = candle.close + spread if order.direction == "bull" else candle.close
+            stop = order.stop
+            distance = abs(fill - stop)
+            if distance <= 0:
+                return False
+            target = (fill + self.cfg.rr * distance if order.direction == "bull"
+                      else fill - self.cfg.rr * distance)
+            opened = self._open(order, fill, candle.time, bar_index, execution_source,
+                                spread, stop=stop, target=target) is not None
+            if opened:
+                self.stats["sweep_reclaim_filled"] = self.stats.get(
+                    "sweep_reclaim_filled", 0) + 1
+            return opened
         self.stats["sweep_reclaim_checked"] = self.stats.get("sweep_reclaim_checked", 0) + 1
         confirmed, lag = self._sweep_reclaim_window(order, candle, bar_index)
         if not confirmed:
@@ -797,6 +1003,414 @@ class PaperBroker:
 
     def _active_pending(self) -> list[PendingOrder]:
         return [x for x in self.pending if x.active]
+
+    def _has_active_pending_for_ob(self, ob_id: str) -> bool:
+        return any(x.active and x.ob_id == ob_id for x in self.pending)
+
+    def _count_max_positions_block(self, order: PendingOrder) -> None:
+        """Telemetry when an otherwise fill-eligible order finds no slot.
+
+        Never mutates execution state: the order stays active and retries on
+        a later tick/candle exactly as it always did.
+        """
+        if order.lifecycle_state != "armed":
+            return
+        if (self.cfg.entry_mode == "sweep_reclaim" and
+                not order.meta.get("sweep_reclaim_confirmed")):
+            return
+        self.stats["rejected_max_positions"] += 1
+        if not order.meta.get("max_positions_blocked_counted"):
+            order.meta["max_positions_blocked_counted"] = True
+            self.stats["setups_blocked_max_positions"] += 1
+
+    # ------------------------------------------------------------------
+    # Experimental per-closed-bar driver (flag-gated).
+    # ------------------------------------------------------------------
+    def _experimental_on_candle(self, candle: Candle, bar_index: int) -> None:
+        """Deterministic per-bar evaluation of the flag-gated experiments.
+
+        Fixed, documented order: Controlled Revival first, then Controlled
+        Re-entry. When one OB qualifies for both on the same bar only the
+        revival order is created (Revival > Re-entry): revival better
+        preserves the original setup's context, and the one-active-pending-
+        per-OB guard plus the superseded_by_revival candidate state make the
+        choice explicit and idempotent -- a record/candidate can only ever
+        transition out of its trigger state once, so no bar or tick can
+        create duplicate orders.
+
+        Trend alignment here reads current_m5_trend as of the PREVIOUS closed
+        bar (this hook runs before update_m5_trend for the current bar in all
+        three execution paths), matching how real pending orders and the
+        shadow audit experience the trend gate: one bar of confirmation
+        conservatism, identical everywhere.
+        """
+        if self.cfg.entry_mode != "sweep_reclaim":
+            return
+        if self.cfg.controlled_revival:
+            self._controlled_revival_on_candle(candle, bar_index)
+        if self.cfg.allow_ob_reentry:
+            self._reentry_on_candle(candle, bar_index)
+
+    def _controlled_revival_on_candle(self, candle: Candle, bar_index: int) -> None:
+        for rec in self.revival_records:
+            if rec["state"] != "suspended":
+                continue
+            if rec["ob_id"] in self.invalidated_obs:
+                rec["state"] = "rejected_ob_invalid"
+                self.stats["revival_rejected_ob_invalid"] += 1
+                continue
+            lag = bar_index - rec["cancel_index"]
+            want = "bullish" if rec["direction"] == "bull" else "bearish"
+            if self.current_m5_trend.value != want:
+                if lag > self.cfg.revival_max_return_bars:
+                    rec["state"] = "expired_no_return"
+                    self.stats["revival_rejected_too_late"] += 1
+                continue
+            if lag > self.cfg.revival_max_return_bars:
+                rec["state"] = "rejected_too_late"
+                self.stats["revival_rejected_too_late"] += 1
+                continue
+            self.stats["revival_trend_returned"] += 1
+            for bound, key in ((3, "revival_returned_within_3"),
+                               (6, "revival_returned_within_6"),
+                               (12, "revival_returned_within_12")):
+                if lag <= bound:
+                    self.stats[key] += 1
+            attempts = self.revival_attempts.get(rec["ob_id"], 0)
+            if attempts >= self.cfg.revival_max_per_ob:
+                rec["state"] = "rejected_attempt_limit"
+                self.stats["revival_rejected_attempt_limit"] += 1
+                continue
+            if self._has_active_pending_for_ob(rec["ob_id"]):
+                rec["state"] = "superseded_active_order"
+                continue
+            reason = ("trend_returned_fresh_sweep_required"
+                      if self.cfg.revival_require_fresh_sweep
+                      else "trend_returned_no_fresh_sweep_required")
+            order = self._create_experimental_order(rec, candle, bar_index, "revival", {
+                "is_revival": True,
+                "revival_parent_order_id": rec["parent_order_id"],
+                "revival_parent_ob_id": rec["ob_id"],
+                "revival_attempt": attempts + 1,
+                "revival_suspended_index": rec["cancel_index"],
+                "revival_trend_return_index": bar_index,
+                "revival_return_lag_bars": lag,
+                "revival_reason": reason,
+            })
+            self.revival_attempts[rec["ob_id"]] = attempts + 1
+            rec.update({"state": "order_created", "revival_order_id": order.id,
+                        "return_index": bar_index})
+            self.stats["revival_orders_created"] += 1
+
+    def _reentry_on_candle(self, candle: Candle, bar_index: int) -> None:
+        for ob_id, hist in self.ob_entry_history.items():
+            if hist.get("candidate_state") != "waiting":
+                continue
+            if ob_id in self.invalidated_obs:
+                hist["candidate_state"] = "rejected_ob_invalid"
+                self.stats["reentry_rejected_ob_invalid"] += 1
+                continue
+            if self._has_active_pending_for_ob(ob_id):
+                # Revival > Re-entry: a revival order just created on this OB
+                # permanently supersedes the re-entry candidate.
+                if any(rec.get("revival_order_id") and rec["ob_id"] == ob_id and
+                       rec["state"] == "order_created" for rec in self.revival_records):
+                    hist["candidate_state"] = "superseded_by_revival"
+                continue
+            if (self.cfg.controlled_revival and
+                    any(rec["ob_id"] == ob_id and rec["state"] == "suspended"
+                        for rec in self.revival_records)):
+                # A pending revival decision exists -- defer, don't compete.
+                continue
+            wait = bar_index - hist["last_exit_index"]
+            if wait < self.cfg.min_reentry_wait_bars:
+                if not hist.get("wait_blocked_counted"):
+                    hist["wait_blocked_counted"] = True
+                    self.stats["reentry_rejected_wait"] += 1
+                continue
+            want = "bullish" if hist["direction"] == "bull" else "bearish"
+            if self.current_m5_trend.value != want:
+                hist["candidate_state"] = "rejected_trend"
+                self.stats["reentry_rejected_trend"] += 1
+                continue
+            attempts = hist.get("attempts", 0)
+            if attempts >= self.cfg.max_entries_per_ob:
+                hist["candidate_state"] = "rejected_attempt_limit"
+                self.stats["reentry_rejected_attempt_limit"] += 1
+                continue
+            order = self._create_experimental_order(hist, candle, bar_index, "reentry", {
+                "is_reentry": True,
+                "reentry_parent_trade_id": hist.get("last_trade_id"),
+                "reentry_wait_bars": wait,
+                "previous_entry_result_r": hist.get("last_result_r"),
+            })
+            hist.update({"candidate_state": "order_created",
+                         "reentry_order_id": order.id})
+            self.stats["reentry_orders_created"] += 1
+
+    def _register_reentry_candidate(self, trade: Trade, bar_index: int | None) -> None:
+        """Called from _close: books the exit and, when every static gate
+        passes, opens a re-entry candidacy that _reentry_on_candle evaluates
+        bar by bar. Weak CHoCH never becomes a candidate."""
+        ob_id = trade.ob_id
+        if not ob_id:
+            return
+        hist = self.ob_entry_history.setdefault(ob_id, {"attempts": 0})
+        hist["attempts"] = max(hist.get("attempts", 0),
+                               int(trade.meta.get("ob_entry_attempt") or 1))
+        exit_index = bar_index if bar_index is not None else self.market_index
+        hist.update({
+            "direction": trade.direction,
+            "entry": trade.meta.get("ob_entry_price"),
+            "base_stop": trade.meta.get("ob_stop_price"),
+            "atr": trade.meta.get("atr_at_formation") or 0.0,
+            "break_kind": trade.meta.get("break_kind"),
+            "strong_choch": bool(trade.meta.get("bos_displacement_top_quartile")),
+            "ob_id": ob_id,
+            "last_exit_index": exit_index,
+            "last_exit_time": trade.closed_time,
+            "last_result_r": trade.r_multiple,
+            "last_trade_id": trade.id,
+        })
+        hist.pop("wait_blocked_counted", None)
+        if exit_index is None or hist["entry"] is None or hist["base_stop"] is None:
+            return  # restored pre-feature trade without OB edges: safely skip
+        if ob_id in self.invalidated_obs:
+            return
+        if not self._revival_eligible_break(trade.meta):
+            return
+        if self.cfg.reentry_after_loss_only and trade.result == "win":
+            return
+        if hist["attempts"] >= self.cfg.max_entries_per_ob:
+            self.stats["reentry_rejected_attempt_limit"] += 1
+            return
+        hist["candidate_state"] = "waiting"
+        self.stats["reentry_candidates"] += 1
+
+    def _create_experimental_order(self, base: dict, candle: Candle, bar_index: int,
+                                   kind: str, extra_meta: dict) -> PendingOrder:
+        """Build the new PendingOrder a revival/re-entry produces.
+
+        Never restores the old order: new uuid, fresh created_index, and --
+        unless require_fresh_sweep was explicitly disabled -- no sweep state,
+        so the normal _sweep_reclaim_window machinery must confirm a
+        completely fresh sweep+reclaim (which cannot happen before
+        created_index + max(1, min_entry_wait_bars): the first entry's sweep
+        is structurally unusable). Stop/fill are recomputed from that fresh
+        structure by the standard confirm/fill code.
+        """
+        direction = base["direction"]
+        entry = float(base["entry"])
+        base_stop = float(base["base_stop"])
+        atr = float(base.get("atr") or 0.0)
+        width = abs(entry - base_stop)
+        require_fresh = (self.cfg.revival_require_fresh_sweep if kind == "revival"
+                         else self.cfg.reentry_require_fresh_sweep)
+        stop = base_stop
+        meta = {
+            "break_kind": base.get("break_kind"),
+            "atr_at_formation": atr or None,
+            "ob_entry_price": entry,
+            "ob_stop_price": base_stop,
+            "ob_width": width,
+            "ob_width_atr": width / atr if atr else None,
+            "bos_displacement_top_quartile": base.get("strong_choch"),
+            "trend_at_creation": self.current_m5_trend.value,
+            "m5_trend_at_setup": self.current_m5_trend.value,
+            "trend_swing_length": self.cfg.trend_swing_length,
+            "entry_pivot_left": self.cfg.entry_pivot_left,
+            "entry_pivot_right": self.cfg.entry_pivot_right,
+            "setup_model": kind,
+            "is_revival": False,
+            "is_reentry": False,
+            **extra_meta,
+        }
+        if not require_fresh:
+            buffer = atr * self.cfg.sweep_reclaim_atr_buffer
+            stop = base_stop - buffer if direction == "bull" else base_stop + buffer
+            meta.update({"sweep_reclaim_confirmed": True,
+                         "entry_mode": "sweep_reclaim",
+                         "sweep_reclaim_atr_buffer": self.cfg.sweep_reclaim_atr_buffer,
+                         "reclaim_close": candle.close,
+                         f"{kind}_no_fresh_sweep": True})
+        distance = abs(entry - stop)
+        target = (entry + self.cfg.rr * distance if direction == "bull"
+                  else entry - self.cfg.rr * distance)
+        order = PendingOrder(uuid4().hex, base["ob_id"], direction, entry, stop,
+                             target, bar_index, candle.time, True, meta, "armed")
+        if self.cfg.allow_ob_reentry:
+            hist = self.ob_entry_history.setdefault(base["ob_id"], {"attempts": 0})
+            hist["attempts"] = hist.get("attempts", 0) + 1
+            meta["ob_entry_attempt"] = hist["attempts"]
+        self.pending.append(order)
+        self.pending.sort(key=lambda x: (x.created_index, x.created_time))
+        return order
+
+    def _note_experimental_cancel(self, order: PendingOrder, cause: str) -> None:
+        """Bookkeeping when an ACTIVE order dies from a trend change
+        (cause='trend') or OB invalidation (cause='ob_invalid'). Pure
+        telemetry/state-machine updates; the caller performs the actual
+        cancellation exactly as before."""
+        meta = order.meta
+        if meta.get("spread_wait_active"):
+            key = ("spread_wait_cancelled_trend" if cause == "trend"
+                   else "spread_wait_cancelled_ob_invalid")
+            self.stats[key] += 1
+            meta["spread_wait_active"] = False
+        if meta.get("is_revival"):
+            self.stats["revival_orders_cancelled"] += 1
+            if not meta.get("sweep_reclaim_confirmed"):
+                self.stats["revival_rejected_no_fresh_sweep"] += 1
+            for rec in self.revival_records:
+                if rec.get("revival_order_id") == order.id and rec["state"] == "order_created":
+                    rec["state"] = f"order_cancelled_{cause}"
+        if meta.get("is_reentry"):
+            if cause == "trend":
+                self.stats["reentry_rejected_trend"] += 1
+            if not meta.get("sweep_reclaim_confirmed"):
+                self.stats["reentry_rejected_no_fresh_sweep"] += 1
+            hist = self.ob_entry_history.get(order.ob_id)
+            if hist is not None and hist.get("reentry_order_id") == order.id:
+                hist["candidate_state"] = f"order_cancelled_{cause}"
+
+    # ------------------------------------------------------------------
+    # Spread Wait (flag-gated; tick execution paths only).
+    # ------------------------------------------------------------------
+    def _spread_wait_on_block(self, order: PendingOrder, tick: Tick, spread: float) -> None:
+        """A confirmed order was spread-blocked. Legacy (flag off): implicit
+        unbounded retry, untouched. Flag on: explicit waiting_spread state
+        with deterministic expiry on any configured limit."""
+        if not self.cfg.wait_for_spread_after_confirmation:
+            return
+        meta = order.meta
+        if not meta.get("spread_wait_active"):
+            meta.update({"spread_wait_active": True,
+                         "lifecycle_note": "waiting_spread",
+                         "spread_wait_started_time": tick.time,
+                         "spread_wait_started_index": self.market_index,
+                         "spread_wait_ticks": 0,
+                         "spread_at_confirmation": spread})
+            self.stats["spread_wait_started"] += 1
+            self.stats["unique_orders_blocked_by_spread"] += 1
+            self.stats["spread_at_confirmation_sum"] = round(
+                self.stats.get("spread_at_confirmation_sum", 0.0) + spread, 10)
+        meta["spread_wait_ticks"] = int(meta.get("spread_wait_ticks", 0)) + 1
+        seconds = self._elapsed_seconds(meta.get("spread_wait_started_time"), tick.time)
+        expired = (self.cfg.spread_wait_max_ticks is not None and
+                   meta["spread_wait_ticks"] > self.cfg.spread_wait_max_ticks)
+        if (not expired and self.cfg.spread_wait_max_seconds is not None and
+                seconds is not None and seconds > self.cfg.spread_wait_max_seconds):
+            expired = True
+        if (not expired and self.cfg.spread_wait_max_bars is not None and
+                self.market_index is not None and
+                meta.get("spread_wait_started_index") is not None and
+                self.market_index - meta["spread_wait_started_index"] >
+                self.cfg.spread_wait_max_bars):
+            expired = True
+        if expired:
+            order.active = False
+            order.lifecycle_state = "spread_wait_expired"
+            meta.update({"spread_wait_active": False, "spread_waited": True,
+                         "spread_wait_seconds": seconds})
+            self.stats["spread_wait_expired"] += 1
+            self._spread_wait_record_duration(meta, seconds)
+
+    def _spread_wait_finalize(self, position: PaperPosition, tick: Tick,
+                              spread: float) -> None:
+        """Stamp fill-side wait telemetry on the just-opened position."""
+        if not self.cfg.wait_for_spread_after_confirmation:
+            return
+        meta = position.meta
+        if meta.get("spread_wait_active"):
+            seconds = self._elapsed_seconds(meta.get("spread_wait_started_time"), tick.time)
+            meta.update({"spread_wait_active": False, "spread_waited": True,
+                         "spread_wait_seconds": seconds, "spread_at_fill": spread})
+            self.stats["spread_wait_eventually_filled"] += 1
+            self.stats["spread_at_fill_sum"] = round(
+                self.stats.get("spread_at_fill_sum", 0.0) + spread, 10)
+            self._spread_wait_record_duration(meta, seconds)
+        else:
+            meta.setdefault("spread_waited", False)
+
+    def _spread_wait_after_reject(self, order: PendingOrder) -> None:
+        if (self.cfg.wait_for_spread_after_confirmation and
+                order.meta.get("spread_wait_active") and
+                order.lifecycle_state == "rejected_sizing"):
+            self.stats["spread_wait_rejected_sizing"] += 1
+            order.meta["spread_wait_active"] = False
+
+    def _spread_wait_record_duration(self, meta: dict, seconds: float | None) -> None:
+        ticks = int(meta.get("spread_wait_ticks", 0))
+        self.stats["spread_wait_duration_ticks_sum"] += ticks
+        if seconds is not None:
+            self.stats["spread_wait_duration_seconds_sum"] = round(
+                self.stats.get("spread_wait_duration_seconds_sum", 0.0) + seconds, 6)
+            self.stats["spread_wait_max_duration_seconds"] = max(
+                self.stats.get("spread_wait_max_duration_seconds", 0.0),
+                round(seconds, 6))
+
+    @staticmethod
+    def _elapsed_seconds(start: str | None, end: str | None) -> float | None:
+        if not start or not end:
+            return None
+        try:
+            return max(0.0, (datetime.fromisoformat(end) -
+                             datetime.fromisoformat(start)).total_seconds())
+        except ValueError:
+            return None
+
+    # ------------------------------------------------------------------
+    # Experimental persistence helpers.
+    # ------------------------------------------------------------------
+    def _experimental_fingerprint(self) -> dict:
+        """The config surface the persisted experimental state depends on.
+        Stored in every snapshot; a mismatch on restore triggers the safe
+        cancellation path in _cancel_experimental_state."""
+        cfg = self.cfg
+        return {"entry_mode": cfg.entry_mode,
+                "sweep_reclaim_max_bars": cfg.sweep_reclaim_max_bars,
+                "controlled_revival": cfg.controlled_revival,
+                "revival_max_return_bars": cfg.revival_max_return_bars,
+                "revival_require_fresh_sweep": cfg.revival_require_fresh_sweep,
+                "revival_max_per_ob": cfg.revival_max_per_ob,
+                "allow_ob_reentry": cfg.allow_ob_reentry,
+                "max_entries_per_ob": cfg.max_entries_per_ob,
+                "min_reentry_wait_bars": cfg.min_reentry_wait_bars,
+                "reentry_require_fresh_sweep": cfg.reentry_require_fresh_sweep,
+                "reentry_after_loss_only": cfg.reentry_after_loss_only,
+                "wait_for_spread_after_confirmation": cfg.wait_for_spread_after_confirmation,
+                "spread_wait_max_seconds": cfg.spread_wait_max_seconds,
+                "spread_wait_max_ticks": cfg.spread_wait_max_ticks,
+                "spread_wait_max_bars": cfg.spread_wait_max_bars,
+                "portfolio_risk_cap": cfg.portfolio_risk_cap}
+
+    def _cancel_experimental_state(self, stored: dict, current: dict) -> None:
+        """Safe behaviour on config/state mismatch across a restart: cancel
+        every in-flight experimental artifact, KEEP attempt counters (so a
+        restart can never grant extra revivals/re-entries), and queue one
+        loggable event explaining why. Old orders are never re-validated or
+        re-activated here."""
+        cancelled = 0
+        for order in self.pending:
+            if order.active and (order.meta.get("is_revival") or
+                                 order.meta.get("is_reentry")):
+                order.active = False
+                order.lifecycle_state = "cancelled_config_change"
+                cancelled += 1
+            order.meta.pop("spread_wait_active", None)
+        for rec in self.revival_records:
+            if rec["state"] == "suspended":
+                rec["state"] = "cancelled_config_change"
+        for hist in self.ob_entry_history.values():
+            if hist.get("candidate_state") == "waiting":
+                hist["candidate_state"] = "cancelled_config_change"
+        self.trend_events.append({
+            "event_type": "experimental_state_cancelled",
+            "reason": "experimental config changed across restart; in-flight "
+                      "experimental state cancelled (attempt counters kept)",
+            "stored_config": stored, "current_config": current,
+            "orders_cancelled": cancelled,
+        })
 
     def _open(self, order: PendingOrder, fill: float, when: str,
               bar_index: int | None, execution_source: str,
@@ -926,6 +1540,43 @@ class PaperBroker:
             return None
         volume, actual_risk = sizing.volume, sizing.actual_risk
 
+        # Portfolio risk cap (flag-gated). Runs right after sizing so the
+        # projection uses the REAL sized risk of this fill, and open risk is
+        # each open position's entry-to-stop risk_money booked at its own
+        # entry -- floating PnL never enters the calculation. Reject-only in
+        # v1: the volume is never silently reduced and a rejected order is
+        # deactivated, not retried later.
+        if self.cfg.portfolio_risk_cap is not None:
+            open_risk_money = sum(item.risk_money for item in self.positions)
+            equity = self.equity if self.equity > 0 else 0.0
+            open_fraction = open_risk_money / equity if equity else float("inf")
+            new_fraction = actual_risk / equity if equity else float("inf")
+            projected = open_fraction + new_fraction
+            order.meta.update({"open_risk_before_entry": open_fraction,
+                               "new_trade_risk_fraction": new_fraction,
+                               "projected_open_risk_fraction": projected,
+                               "portfolio_risk_cap": self.cfg.portfolio_risk_cap})
+            if projected > self.cfg.portfolio_risk_cap + 1e-12:
+                order.active = False
+                order.lifecycle_state = "rejected_portfolio_risk"
+                order.meta["rejection_reason"] = PORTFOLIO_RISK_CAP_EXCEEDED
+                self.stats["rejected_portfolio_risk_cap"] += 1
+                self.stats["setups_blocked_portfolio_risk"] += 1
+                self.rejected_sizing.append({
+                    "order_id": order.id, "ob_id": order.ob_id,
+                    "direction": order.direction, "entry_price": fill,
+                    "stop_loss": stop, "equity": self.equity,
+                    "risk_percent": risk_fraction,
+                    "open_risk_before_entry": open_fraction,
+                    "new_trade_risk_fraction": new_fraction,
+                    "projected_open_risk_fraction": projected,
+                    "portfolio_risk_cap": self.cfg.portfolio_risk_cap,
+                    "rejection_reason": PORTFOLIO_RISK_CAP_EXCEEDED, "time": when,
+                })
+                return None
+            self.stats["max_observed_open_risk_fraction"] = max(
+                self.stats.get("max_observed_open_risk_fraction", 0.0), projected)
+
         # Final, LIVE M5-trend re-check -- a pending order can go stale
         # between creation and fill (formed under one trend, touched only
         # after the trend already flipped). This uses self.current_m5_trend
@@ -952,6 +1603,17 @@ class PaperBroker:
             })
             return None
 
+        if order.meta.get("is_revival"):
+            self.stats["revival_orders_filled"] += 1
+            order.meta["revival_fresh_sweep_index"] = order.meta.get("sweep_index")
+        elif order.meta.get("is_reentry"):
+            self.stats["reentry_orders_filled"] += 1
+            order.meta["reentry_fresh_sweep_index"] = order.meta.get("sweep_index")
+        if self.cfg.controlled_revival or self.cfg.allow_ob_reentry:
+            order.meta.setdefault(
+                "setup_model",
+                "revival" if order.meta.get("is_revival")
+                else "reentry" if order.meta.get("is_reentry") else "normal")
         order.active = False
         order.lifecycle_state = "filled"
         position = PaperPosition(uuid4().hex, order.id, order.direction, fill,
@@ -1086,6 +1748,16 @@ class PaperBroker:
         if self.peak_equity:
             self.max_drawdown = max(self.max_drawdown, (self.peak_equity - self.equity) / self.peak_equity)
         self.positions.remove(p)
+        if trade.meta.get("is_revival"):
+            self.stats["revival_wins" if trade.result == "win" else "revival_losses"] += 1
+            self.stats["revival_total_r"] = round(
+                self.stats.get("revival_total_r", 0.0) + trade.r_multiple, 6)
+        elif trade.meta.get("is_reentry"):
+            self.stats["reentry_wins" if trade.result == "win" else "reentry_losses"] += 1
+            self.stats["reentry_total_r"] = round(
+                self.stats.get("reentry_total_r", 0.0) + trade.r_multiple, 6)
+        if self.cfg.allow_ob_reentry and self.cfg.entry_mode == "sweep_reclaim":
+            self._register_reentry_candidate(trade, bar_index)
         return trade
 
     def dump_state(self, index_offset: int = 0) -> dict:
@@ -1097,6 +1769,10 @@ class PaperBroker:
             for key in ("created_index", "accepted_index", "armed_index"):
                 if item.get(key) is not None:
                     item[key] -= index_offset
+            if index_offset and item["meta"].get("spread_wait_started_index") is not None:
+                # Keeps the bar-based spread-wait timeout correct after a
+                # trimmed dump/load round trip.
+                item["meta"]["spread_wait_started_index"] -= index_offset
             pending.append(item)
         positions = []
         for value in self.positions:
@@ -1117,7 +1793,16 @@ class PaperBroker:
                 "last_pivot_high": _dump_entry_pivot(self.last_pivot_high, index_offset),
                 "last_pivot_low": _dump_entry_pivot(self.last_pivot_low, index_offset),
                 "revival_shadow": self.revival_shadow,
-                "shadow_positions": self.shadow_positions}
+                "shadow_positions": self.shadow_positions,
+                "revival_records": [_shift_indices(dict(rec), index_offset,
+                                                   ("cancel_index", "return_index"))
+                                    for rec in self.revival_records],
+                "revival_attempts": dict(self.revival_attempts),
+                "ob_entry_history": {ob_id: _shift_indices(dict(hist), index_offset,
+                                                           ("last_exit_index",))
+                                     for ob_id, hist in self.ob_entry_history.items()},
+                "invalidated_obs": sorted(self.invalidated_obs),
+                "experimental_config": self._experimental_fingerprint()}
 
     def load_state(self, data: dict) -> None:
         self.initial_equity = data["initial_equity"]
@@ -1190,6 +1875,28 @@ class PaperBroker:
         self.entry_pivot_gate_active = data.get("entry_pivot_gate_active", False)
         self.last_pivot_high = EntryPivot(**data["last_pivot_high"]) if data.get("last_pivot_high") else None
         self.last_pivot_low = EntryPivot(**data["last_pivot_low"]) if data.get("last_pivot_low") else None
+        for key, default in _experimental_stats_defaults().items():
+            self.stats.setdefault(key, default)
+        self.revival_records = [dict(x) for x in data.get("revival_records", [])]
+        self.revival_attempts = {str(key): int(value) for key, value
+                                 in (data.get("revival_attempts") or {}).items()}
+        self.ob_entry_history = {str(key): dict(value) for key, value
+                                 in (data.get("ob_entry_history") or {}).items()}
+        self.invalidated_obs = set(data.get("invalidated_obs", []))
+        stored = data.get("experimental_config")
+        current = self._experimental_fingerprint()
+        if stored is not None and stored != current:
+            self._cancel_experimental_state(stored, current)
+
+
+def _shift_indices(item: dict, index_offset: int, keys: tuple[str, ...]) -> dict:
+    """Rebase the given bar-index keys by index_offset (dump-time trim),
+    mirroring what dump_state does for every other persisted index."""
+    if index_offset:
+        for key in keys:
+            if item.get(key) is not None:
+                item[key] -= index_offset
+    return item
 
 
 def _dump_entry_pivot(pivot: EntryPivot | None, index_offset: int) -> dict | None:

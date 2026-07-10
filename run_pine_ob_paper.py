@@ -24,6 +24,10 @@ from pathlib import Path
 from typing import Sequence
 
 from pine_ob_bot.app import PaperApp
+from pine_ob_bot.cli_experimental import (add_experimental_arguments, build_run_label,
+                                          experimental_label_tokens,
+                                          resolve_experimental_config,
+                                          validate_experimental_args)
 from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
 from pine_ob_bot.mt5_feed import MT5ReadOnlyFeed
@@ -138,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-label", default="", help="suffix for historical output files")
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
+    add_experimental_arguments(parser)
     return parser
 
 
@@ -177,6 +182,7 @@ def resolve_swing_settings(args: argparse.Namespace,
 
 def build_config(args: argparse.Namespace, trend_swing_length: int, db_path: Path) -> BotConfig:
     return BotConfig(
+        **resolve_experimental_config(args),
         symbol=args.symbol,
         db_path=db_path,
         rr=args.rr,
@@ -232,19 +238,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     validate_fixed_risk_args(parser, args)
+    validate_experimental_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
+    # Experimental flags append tokens to the auto db/run-label names so an
+    # experiment can never overwrite a legacy (or differently-configured)
+    # run's files; with no experimental flag both names are exactly the
+    # legacy ones.
+    resolved = resolve_experimental_config(args)
+    tokens = experimental_label_tokens(args, resolved)
+    base_name = (f"paper_t{trend_swing_length}"
+                 f"_p{entry_pivot_left}x{entry_pivot_right}")
     db_path = args.db or Path(
-        "pine_ob_bot_data/"
-        f"paper_t{trend_swing_length}"
-        f"_p{entry_pivot_left}x{entry_pivot_right}.sqlite3"
-    )
-    # Only used by --backtest; keeps different swing/pivot runs from ever
-    # overwriting each other's historical output files.
-    effective_run_label = args.run_label or (
-        f"t{trend_swing_length}"
-        f"_p{entry_pivot_left}x{entry_pivot_right}"
-    )
+        "pine_ob_bot_data/" + build_run_label(base_name, tokens, resolved) + ".sqlite3")
+    # Only used by --backtest; keeps different swing/pivot/experiment runs
+    # from ever overwriting each other's historical output files.
+    base_label = (f"t{trend_swing_length}"
+                  f"_p{entry_pivot_left}x{entry_pivot_right}")
+    effective_run_label = args.run_label or build_run_label(base_label, tokens, resolved)
 
     cfg = build_config(args, trend_swing_length, db_path)
 

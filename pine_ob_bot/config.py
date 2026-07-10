@@ -87,6 +87,55 @@ class BotConfig:
     # PaperBroker._apply_breakeven on every tick/candle that touches an open
     # position; the "breakeven_armed" stat counts activations.
     breakeven_trigger_r: float | None = None
+    # ------------------------------------------------------------------
+    # Experimental trade-frequency features. EVERY field below defaults to
+    # off/None; they may only be enabled through their dedicated CLI flags
+    # (--controlled-revival, --allow-ob-reentry,
+    # --wait-for-spread-after-confirmation, --portfolio-risk-cap). With all
+    # of them off the broker takes the exact legacy code paths -- guarded by
+    # tests/test_legacy_regression.py against pre-change fixtures.
+    # ------------------------------------------------------------------
+    # Controlled Revival: when a pending sweep_reclaim setup is cancelled
+    # purely by an M5 trend change, keep a suspended record; if the trend
+    # returns to the original direction within revival_max_return_bars closed
+    # bars while the OB is still valid, create a brand-new pending order
+    # (new id, linked via metadata) that must earn a completely FRESH
+    # sweep+reclaim after the return. The old order is never re-activated.
+    # Weak CHoCH setups are never revived. Requires entry_mode=sweep_reclaim.
+    controlled_revival: bool = False
+    revival_max_return_bars: int = 6
+    # When False (explicit opt-out), the revival order is created already
+    # sweep-confirmed and fills on the next tick/bar without a fresh sweep.
+    revival_require_fresh_sweep: bool = True
+    revival_max_per_ob: int = 1
+    # Controlled Re-entry: one additional, fully re-validated entry on the
+    # same Order Block after the previous trade on it has CLOSED. Needs a
+    # fresh sweep+reclaim (the first entry's sweep is never reusable), an
+    # aligned trend, a still-valid OB and min_reentry_wait_bars of distance
+    # from the exit. Attempt counting includes the first entry, so
+    # max_entries_per_ob=2 means "the original entry plus one re-entry".
+    # Requires entry_mode=sweep_reclaim. Weak CHoCH never re-enters.
+    allow_ob_reentry: bool = False
+    max_entries_per_ob: int = 2
+    min_reentry_wait_bars: int = 1
+    reentry_require_fresh_sweep: bool = True
+    reentry_after_loss_only: bool = False
+    # Spread Wait: instead of retrying a spread-blocked, already-confirmed
+    # order indefinitely (the implicit legacy behaviour), place it in an
+    # explicit waiting state bounded by at least one of the three limits;
+    # cancel deterministically on timeout, trend change or OB invalidation.
+    # Tick-execution paths only (live paper + tick backtest); the OHLC replay
+    # has no per-tick spread so the flag is inert there.
+    wait_for_spread_after_confirmation: bool = False
+    spread_wait_max_seconds: float | None = None
+    spread_wait_max_ticks: int | None = None
+    spread_wait_max_bars: int | None = None
+    # Portfolio risk cap: reject any fill whose projected TOTAL open risk
+    # (sum of open positions' risk_money plus the new trade's sized risk,
+    # as a fraction of current equity) exceeds this cap. Reject-only in v1:
+    # volume is never silently reduced, and a rejected order is deactivated,
+    # not retried. None keeps the legacy unlimited behaviour.
+    portfolio_risk_cap: float | None = None
     entry_lifecycle_enabled: bool = False
     poll_seconds: float = 1.0
     fallback_spread: float = 0.20
@@ -182,6 +231,31 @@ class BotConfig:
             raise ValueError("sweep_reclaim_max_bars must be at least 1")
         if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
             raise ValueError("breakeven_trigger_r must be positive or None")
+        if self.revival_max_return_bars < 1:
+            raise ValueError("revival_max_return_bars must be at least 1")
+        if self.revival_max_per_ob < 1:
+            raise ValueError("revival_max_per_ob must be at least 1")
+        if self.controlled_revival and self.entry_mode != "sweep_reclaim":
+            raise ValueError("controlled_revival requires entry_mode='sweep_reclaim'")
+        if self.max_entries_per_ob < 1:
+            raise ValueError("max_entries_per_ob must be at least 1")
+        if self.allow_ob_reentry and self.max_entries_per_ob < 2:
+            raise ValueError("max_entries_per_ob must be at least 2 when re-entry is enabled")
+        if self.min_reentry_wait_bars < 0:
+            raise ValueError("min_reentry_wait_bars cannot be negative")
+        if self.allow_ob_reentry and self.entry_mode != "sweep_reclaim":
+            raise ValueError("allow_ob_reentry requires entry_mode='sweep_reclaim'")
+        spread_wait_limits = (self.spread_wait_max_seconds, self.spread_wait_max_ticks,
+                              self.spread_wait_max_bars)
+        if self.wait_for_spread_after_confirmation and all(v is None for v in spread_wait_limits):
+            raise ValueError("spread wait needs at least one of max seconds/ticks/bars")
+        if any(v is not None and v <= 0 for v in spread_wait_limits):
+            raise ValueError("spread wait limits must be positive when set")
+        if not self.wait_for_spread_after_confirmation and any(v is not None
+                                                               for v in spread_wait_limits):
+            raise ValueError("spread wait limits require wait_for_spread_after_confirmation")
+        if self.portfolio_risk_cap is not None and not 0 < self.portfolio_risk_cap <= 1:
+            raise ValueError("portfolio_risk_cap must be in (0, 1] or None")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
         # Values above 1 mean "burst fill": while the broker is flat, up to
