@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۸ — Order Block و BOS/CHoCH | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۸ از ۲۰</div>
+    <h1>Order Block و BOS/CHoCH</h1>
+    <p class="chapter-sub">چگونه یک شکست ساختار به یک ناحیهٔ قابل‌معامله تبدیل می‌شود، چرخهٔ عمر آن، و تفاوت CHoCH قوی/ضعیف.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#make-ob">ساخت Order Block: _make_ob</a></li>
+      <li><a href="#lifecycle">چرخهٔ عمر Order Block</a></li>
+      <li><a href="#strong-weak">CHoCH قوی در برابر CHoCH ضعیف</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: طبقه‌بندی BOS/CHoCH</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#design">نکات طراحی</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل ۶ دیدیم یک شکست چگونه BOS یا CHoCH نامیده می‌شود. این فصل یک قدم جلوتر می‌رود: همان شکست
+    چگونه به یک <code>OrderBlock</code> — ناحیهٔ قیمتی قابل‌معامله — تبدیل می‌شود، آن ناحیه چه
+    چرخهٔ عمری دارد، و چرا بعضی CHoCHها «قوی‌تر» از بقیه شمرده می‌شوند.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>pine_ob_bot/pine_engine.py</code> (<code>_make_ob</code>، ابطال OB)، <code>pine_ob_bot/structure_context.py</code> (<code>DisplacementContext</code>)، <code>pine_ob_bot/models.py</code> (<code>OrderBlock</code>)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۵، ۶</dd>
+  </div>
+
+  <h2 id="make-ob">ساخت Order Block: _make_ob</h2>
+  <p>
+    وقتی یک شکست (BOS یا CHoCH) تشخیص داده می‌شود، <code>PineSwingOBEngine</code> بلافاصله یک
+    <code>OrderBlock</code> می‌سازد. تعریف کلاسیک SMC اینجا دقیقاً پیاده‌سازی شده: «آخرین کندل
+    <em>مخالفِ</em> جهت حرکت، درست قبل از حرکت ضربه‌ای (impulse) که شکست را ساخت».
+  </p>
+  <div class="code-path">pine_ob_bot/pine_engine.py — _make_ob (خلاصه‌شده)</div>
+  <pre><code class="language-python">def _make_ob(self, pivot, direction, i, formed_time, break_kind):
+    if pivot.bar_index >= i:
+        return None
+    segment_source = self.parsed_lows if direction == "bull" else self.parsed_highs
+    segment = segment_source[pivot.bar_index:i]        # کندل شکست خودش را شامل نمی‌شود
+    source = index_of_extreme(segment, minimize=(direction == "bull"))
+
+    return OrderBlock(
+        id=new_id(), direction=direction,
+        high=self.parsed_highs[source], low=self.parsed_lows[source],
+        source_index=source, formed_index=i, formed_time=formed_time,
+        break_kind=break_kind,
+        atr_at_formation=self.atr_values[i],   # ATR در کندلِ شکست، نه کندل منبع
+    )</code></pre>
+  <p>
+    خط به خط: بازهٔ جست‌وجو از کندل Pivot تا (و <strong>بدون شامل</strong>) کندل شکست است — دقیقاً
+    مطابق رفتار <code>array.slice</code> در Pine اصلی. برای یک شکست صعودی، دنبال
+    <strong>پایین‌ترین</strong> low در آن بازه می‌گردیم (آخرین کندل نزولی قبل از ایمپالس)؛ برای
+    شکست نزولی، دنبال <strong>بالاترین</strong> high. جعبهٔ نهایی OB از high/low خودِ آن کندل منبع
+    ساخته می‌شود — نه از پیوت.
+  </p>
+
+  <h2 id="lifecycle">چرخهٔ عمر Order Block</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 880 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="چرخه عمر Order Block">
+      <defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/></marker></defs>
+      <style>.b{fill:#1b2028;stroke:#2a3140;} .t{fill:#e7ebf3;font-size:12px;font-family:sans-serif;text-anchor:middle;} .e{stroke:#5aa9ff;stroke-width:1.4;fill:none;marker-end:url(#a8);}</style>
+      <rect x="20" y="80" width="140" height="40" class="b" rx="8"/><text x="90" y="104" class="t">Formed</text>
+      <rect x="200" y="80" width="140" height="40" class="b" rx="8"/><text x="270" y="104" class="t">Active</text>
+      <rect x="380" y="20" width="220" height="40" class="b" rx="8" stroke="#7ee2b8"/><text x="490" y="44" class="t">Admitted → PendingOrder</text>
+      <rect x="380" y="140" width="220" height="40" class="b" rx="8" stroke="#c9406f"/><text x="490" y="164" class="t">Rejected at admission (فصل ۱۰)</text>
+      <rect x="650" y="80" width="200" height="40" class="b" rx="8"/><text x="750" y="104" class="t">Invalidated / Evicted</text>
+      <path class="e" d="M160,100 L200,100"/>
+      <path class="e" d="M340,90 L380,50"/>
+      <path class="e" d="M340,110 L380,150"/>
+      <path class="e" d="M340,100 L650,100"/>
+    </svg>
+    <div class="diagram-caption">
+      خودِ <code>OrderBlock</code> فقط یک فیلد boolean (<code>active</code>) دارد؛ «پذیرفته‌شدن»
+      یا «ردشدن» یک انشعاب سمت <code>PaperBroker</code> است، نه فیلدی روی خودِ OB.
+    </div>
+  </div>
+  <ol>
+    <li><strong>Formed:</strong> لحظهٔ ساخت، داخل <code>_make_ob</code>، <code>active=True</code>. در ابتدای <code>engine.order_blocks</code> درج می‌شود.</li>
+    <li><strong>Active:</strong> در لیست باقی می‌ماند، هم کاندید ابطال آینده است هم (فقط روی کندل شکل‌گیری خودش) یک‌بار کاندید <code>PaperBroker.add_ob</code>.</li>
+    <li><strong>Admitted / Rejected:</strong> این یک شاخهٔ سمت بروکر است، نه فیلدی روی OB — یک OB ردشده همچنان <code>active</code> می‌ماند در موتور و می‌تواند بعداً باطل شود، فقط هرگز سفارشی برایش ساخته نشد.</li>
+    <li><strong>Invalidated:</strong> در هر کندل بعدی، اگر قیمت از لبهٔ Stop آن OB عبور کند (<code>bear</code>: <code>high &gt; ob.high</code>؛ <code>bull</code>: <code>low &lt; ob.low</code>) → <code>active=False</code>.</li>
+    <li><strong>Evicted:</strong> لیست <code>order_blocks</code> هر بار به ۱۰۰ تای اخیر محدود می‌شود، صرف‌نظر از <code>active</code> بودن.</li>
+  </ol>
+  <div class="callout debt">
+    <span class="callout-tag">بدهی فنی</span>
+    محدودیت سخت ۱۰۰ تایی بدون توجه به <code>active</code> بودن اعمال می‌شود — در تئوری یک OB هنوز
+    فعال می‌تواند صرفاً به‌خاطر طول لیست حذف شود (در عمل بسیار بعید، چون قیمت معمولاً خیلی زودتر آن
+    را باطل می‌کند). این حذف روی <code>PendingOrder</code> متناظر (اگر ساخته شده باشد) اثری ندارد،
+    چون <code>PaperBroker.pending</code> لیست کاملاً جدایی است.
+  </div>
+
+  <h2 id="strong-weak">CHoCH قوی در برابر CHoCH ضعیف</h2>
+  <p>
+    نکتهٔ ظریف: <strong>هیچ فیلدی روی خودِ <code>StructureBreak</code> یا <code>OrderBlock</code>
+    مقدار «قوی»/«ضعیف» نمی‌گیرد</strong> — <code>break_kind</code> فقط یکی از سه مقدار
+    <code>"BOS"</code>/<code>"CHoCH"</code>/<code>"unknown"</code> است. تمایز قوی/ضعیف کاملاً
+    <strong>در لحظهٔ پذیرش</strong>، داخل <code>PaperBroker.add_ob</code>، ساخته می‌شود:
+  </p>
+  <ul>
+    <li><code>DisplacementContext.observe(...)</code> (فصل ۲، <code>structure_context.py</code>) رتبهٔ درصدیِ «قدرت عبور close از سطح شکست، نرمال‌شده با ATR» را نسبت به تاریخچهٔ اخیر محاسبه می‌کند.</li>
+    <li>اگر این رتبه در چارک بالا باشد (<code>&gt;= 0.75</code>) → <code>bos_displacement_top_quartile = True</code> در متادیتای OB.</li>
+    <li>اگر <code>cfg.strong_choch_only</code> فعال باشد، یک CHoCH فقط وقتی پذیرفته می‌شود که این پرچم True باشد؛ در غیر این صورت رد می‌شود (<code>rejected_weak_choch</code>).</li>
+  </ul>
+  <p>پس: «CHoCH قوی» = CHoCH + جابه‌جایی (displacement) در چارک بالای تاریخچهٔ اخیر. «CHoCH ضعیف» = CHoCH بدون آن. این یک <strong>فیلتر پذیرش</strong> است، نه یک نوع دائمی ذخیره‌شده روی خودِ رویداد.</p>
+
+  <h2 id="lab">آزمایشگاه تعاملی: طبقه‌بندی BOS/CHoCH</h2>
+  <div class="lab"><div id="lab-bos-choch"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/paper.py</code> → <code class="small">PaperBroker.add_ob</code>
+    (بخش «strong_choch_only») و <code class="small">pine_ob_bot/structure_context.py</code> → <code class="small">DisplacementContext.observe</code>.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>رتبهٔ درصدی سببی (Causal Percentile Rank):</strong> <code>DisplacementContext</code>
+    رتبهٔ یک مقدار جدید را <em>پیش از</em> افزودن آن به تاریخچه محاسبه می‌کند («no leakage» — نکتهٔ
+    صریح در تحلیل کد) — یک الگوی مهم در هر سیستم بک‌تست: هرگز از داده‌ای که هنوز در آن لحظه وجود
+    نداشته استفاده نکنید.
+  </p>
+  <p>
+    <strong>جداسازی «واقعیت» از «تفسیر»:</strong> اینکه یک شکست BOS یا CHoCH است، واقعیتی از موتور
+    ساختار است؛ اینکه آن CHoCH «قوی» است یا نه، یک <em>تفسیر</em> در لحظهٔ مصرف است — این جداسازی به
+    شما اجازه می‌دهد بدون تغییر موتور ساختار، معیار «قوی بودن» را عوض کنید.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>دنبال یک فیلد <code>strength</code> یا <code>is_strong</code> روی <code>OrderBlock</code> گشتن — چنین فیلدی وجود ندارد.</li>
+    <li>فکر کردن به رد یک OB در <code>add_ob</code> به‌معنای ابطال آن در موتور — نیست؛ OB می‌تواند رد شود ولی همچنان در <code>engine.order_blocks</code> فعال بماند.</li>
+  </ul>
+
+  <h2 id="design">نکات طراحی</h2>
+  <p>
+    قرار دادن منطق «قوی/ضعیف» بیرون از موتور ساختار، اجازه می‌دهد بدون لمس <code>pine_engine.py</code>
+    (که هستهٔ حساس و کاملاً تست‌شدهٔ تشخیص است)، سیاست پذیرش را تغییر دهید — فقط با تغییر پرچم
+    <code>cfg.strong_choch_only</code> یا حتی جایگزینی خودِ <code>DisplacementContext</code>.
+  </p>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط تا پیشرفته)</h4>
+    <p>در آزمایشگاه بالا، «قدرت displacement» را کم و زیاد کنید در حالی که «Strong CHoCH Only» روشن است.
+    نقطهٔ دقیقی که تصمیم از رد به پذیرش تغییر می‌کند را پیدا کنید و توضیح دهید چرا آن نقطه، چارک بالا (۷۵٪) است.</p>
+    <details><summary>راهنما</summary><p class="hint">به شرط <code>percentile &gt;= 0.75</code> در <code>DisplacementContext.observe</code> برگردید.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>کندل منبع یک Order Block دقیقاً چگونه انتخاب می‌شود؟</li>
+    <li>چرا «Admitted/Rejected» فیلدی روی <code>OrderBlock</code> نیست؟</li>
+    <li>«CHoCH قوی» دقیقاً با چه معیاری تعریف می‌شود؟</li>
+    <li>محدودیت ۱۰۰ تایی <code>order_blocks</code> چه ریسک نظری‌ای دارد؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    یک Order Block از آخرین کندل مخالفِ جهت حرکت، درست قبل از شکست، ساخته می‌شود و یک چرخهٔ عمر
+    ساده (Formed → Active → Invalidated/Evicted) دارد. تمایز BOS/CHoCH در موتور ساختار مشخص
+    می‌شود، اما تمایز قوی/ضعیف CHoCH یک فیلتر جداگانه در لحظهٔ پذیرش سفارش است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="07_entry_pivots.html"><span class="dir">→ فصل قبل</span>Entry Pivot</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="09_sweep_and_reclaim.html"><span class="dir">فصل بعد ←</span>Sweep and Reclaim</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-bos-choch",
+    experimentId: "bos_choch_classifier",
+    title: "طبقه‌بندی و پذیرش BOS/CHoCH",
+    goal: "با تغییر جهت روند، نوع شکست، قدرت displacement و پرچم Strong CHoCH Only، ببینید یک setup پذیرفته یا رد می‌شود و چرا.",
+    sourceRef: "فایل: pine_ob_bot/paper.py — متد: PaperBroker.add_ob (بخش strong_choch_only)",
+    fields: [
+      { name: "current_trend", label: "جهت Trend فعلی", type: "select", default: "bullish",
+        options: [ { value: "bullish", label: "صعودی" }, { value: "bearish", label: "نزولی" }, { value: "neutral", label: "خنثی" } ] },
+      { name: "break_direction", label: "جهت شکست جدید", type: "select", default: "bearish",
+        options: [ { value: "bullish", label: "صعودی" }, { value: "bearish", label: "نزولی" } ] },
+      { name: "displacement_percentile", label: "رتبهٔ درصدی قدرت displacement", type: "range", default: 0.5, min: 0, max: 1, step: 0.01,
+        help: "معادل bos_close_through_percentile — بالای ۰.۷۵ یعنی «قوی»" },
+      { name: "strong_choch_only", label: "Strong CHoCH Only", type: "checkbox", default: true,
+        help: "معادل cfg.strong_choch_only" }
+    ]
+  });
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from .config import BotConfig
 from .entry_pivot import PIVOT_HIGH, EntryPivot
+from .m1_assist import M1AssistEngine, m1_stats_defaults
 from .models import Candle, OrderBlock, PaperPosition, PendingOrder, Tick, Trade
 from .position_sizing import CALCULATED_VOLUME_BELOW_BROKER_MINIMUM, calculate_safe_position_size
 from .trend_filter import (ORDER_CANCELLED_M5_TREND_CHANGED, ORDER_CANCELLED_M5_TREND_NEUTRAL,
@@ -74,6 +75,7 @@ def _experimental_stats_defaults() -> dict:
         "rejected_portfolio_risk_cap": 0,
         "setups_blocked_portfolio_risk": 0,
         "max_observed_open_risk_fraction": 0.0,
+        **m1_stats_defaults(),
     }
 
 
@@ -156,9 +158,15 @@ class PaperBroker:
         # attempts even when a re-entry order is cancelled before filling.
         self.ob_entry_history: dict[str, dict] = {}
         # OB ids the engine invalidated: the broker-side "is this OB still
-        # valid" source used by revival/re-entry. Populated only while one of
-        # those features is on (unbounded growth is pointless otherwise).
+        # valid" source used by revival/re-entry/M1-assist. Populated only
+        # while one of those features is on (unbounded growth is pointless
+        # otherwise).
         self.invalidated_obs: set[str] = set()
+        # M1 Entry Assist (cfg.m1_entry_assist). None when the flag is off:
+        # no M1 state exists, no M1 hook does anything -- bit-identical
+        # legacy behaviour and zero overhead.
+        self.m1: M1AssistEngine | None = (M1AssistEngine(self)
+                                          if cfg.m1_entry_assist else None)
         self.stats = {"setups_seen": 0, "rejected_break_kind": 0,
                       "rejected_weak_choch": 0,
                       "early_touch_blocked": 0, "lifecycle_accepted": 0,
@@ -345,6 +353,8 @@ class PaperBroker:
             history["attempts"] = history.get("attempts", 0) + 1
             order.meta["ob_entry_attempt"] = history["attempts"]
             order.meta["is_reentry"] = False
+        if self.m1 is not None:
+            self.m1.register_setup(order)
         return order
 
     def enable_entry_pivot_gate(self) -> None:
@@ -397,7 +407,8 @@ class PaperBroker:
         for rec in self.revival_shadow:
             if rec["ob_id"] == ob_id and rec["state"] in ("suspended", "awaiting"):
                 rec["state"] = "dead_ob"
-        if self.cfg.controlled_revival or self.cfg.allow_ob_reentry:
+        if (self.cfg.controlled_revival or self.cfg.allow_ob_reentry or
+                self.cfg.m1_entry_assist):
             self.invalidated_obs.add(ob_id)
         if self.cfg.controlled_revival:
             for rec in self.revival_records:
@@ -527,9 +538,19 @@ class PaperBroker:
     def set_market_context(self, context: dict) -> None:
         self.market_context = dict(context)
 
+    def process_m1_candle(self, bar) -> None:
+        """Feed one JUST-CLOSED M1 bar into the M1 assist engine. The caller
+        (tick runner / live app) must call this BEFORE processing an M5
+        close triggered by the same tick -- see tick_historical for the
+        documented boundary ordering. A no-op when the flag is off."""
+        if self.m1 is not None:
+            self.m1.on_m1_close(bar)
+
     def process_tick(self, tick: Tick) -> list[Trade]:
         closed: list[Trade] = []
         spread = max(0.0, tick.ask - tick.bid)
+        if self.m1 is not None:
+            self.m1.on_tick(tick)
         if self.positions:
             for p in list(self.positions):
                 px = tick.bid if p.direction == "bull" else tick.ask
@@ -572,6 +593,8 @@ class PaperBroker:
                 if not self._entry_spread_allowed(order, spread):
                     self.stats["spread_entry_blocked"] += 1
                     self._spread_wait_on_block(order, tick, spread)
+                    if self.m1 is not None:
+                        self.m1.on_fill_rejected(order, "spread")
                     continue
                 distance = abs(px - order.stop)
                 if distance <= 0:
@@ -631,6 +654,11 @@ class PaperBroker:
             reclaimed, lag = self._sweep_reclaim_window(order, candle, bar_index)
             if not reclaimed:
                 continue
+            if self.m1 is not None and not self.m1.m5_confirmation_allowed(order):
+                # Sequence validation (sequence/entry modes): the M1 stream
+                # showed the reclaim happened BEFORE the sweep inside this M5
+                # bar -- a false same-bar confirmation, vetoed.
+                continue
             atr = order.meta.get("atr_at_formation") or 0.0
             buffer = atr * self.cfg.sweep_reclaim_atr_buffer
             order.stop = (order.stop - buffer if order.direction == "bull"
@@ -643,6 +671,11 @@ class PaperBroker:
                                "reclaim_time": candle.time})
             self.stats["sweep_reclaim_confirmed"] = self.stats.get(
                 "sweep_reclaim_confirmed", 0) + 1
+            if self.m1 is not None:
+                order.meta.setdefault("entry_timeframe", "M5")
+                order.meta.setdefault("entry_trigger", "m5_sweep_reclaim")
+        if self.m1 is not None:
+            self.m1.on_m5_close(candle, bar_index)
 
     def process_candle(self, candle: Candle, bar_index: int, spread: float = 0.0,
                        execution_source: str = "candle_replay") -> list[Trade]:
@@ -1022,6 +1055,8 @@ class PaperBroker:
         if not order.meta.get("max_positions_blocked_counted"):
             order.meta["max_positions_blocked_counted"] = True
             self.stats["setups_blocked_max_positions"] += 1
+        if self.m1 is not None:
+            self.m1.on_fill_rejected(order, "position_limit")
 
     # ------------------------------------------------------------------
     # Experimental per-closed-bar driver (flag-gated).
@@ -1244,6 +1279,8 @@ class PaperBroker:
             meta["ob_entry_attempt"] = hist["attempts"]
         self.pending.append(order)
         self.pending.sort(key=lambda x: (x.created_index, x.created_time))
+        if self.m1 is not None:
+            self.m1.register_setup(order)
         return order
 
     def _note_experimental_cancel(self, order: PendingOrder, cause: str) -> None:
@@ -1272,6 +1309,8 @@ class PaperBroker:
             hist = self.ob_entry_history.get(order.ob_id)
             if hist is not None and hist.get("reentry_order_id") == order.id:
                 hist["candidate_state"] = f"order_cancelled_{cause}"
+        if self.m1 is not None:
+            self.m1.on_order_cancelled(order, cause)
 
     # ------------------------------------------------------------------
     # Spread Wait (flag-gated; tick execution paths only).
@@ -1382,7 +1421,21 @@ class PaperBroker:
                 "spread_wait_max_seconds": cfg.spread_wait_max_seconds,
                 "spread_wait_max_ticks": cfg.spread_wait_max_ticks,
                 "spread_wait_max_bars": cfg.spread_wait_max_bars,
-                "portfolio_risk_cap": cfg.portfolio_risk_cap}
+                "portfolio_risk_cap": cfg.portfolio_risk_cap,
+                "m1_entry_assist": cfg.m1_entry_assist,
+                "m1_assist_mode": cfg.m1_assist_mode if cfg.m1_entry_assist else None,
+                "m1_reclaim_max_bars": cfg.m1_reclaim_max_bars if cfg.m1_entry_assist else None,
+                "m1_max_confirmations_per_ob": (cfg.m1_max_confirmations_per_ob
+                                                if cfg.m1_entry_assist else None),
+                "m1_entry_expiry_bars": (cfg.m1_entry_expiry_bars
+                                         if cfg.m1_entry_assist else None),
+                "m1_require_closed_bar": (cfg.m1_require_closed_bar
+                                          if cfg.m1_entry_assist else None),
+                "m1_use_sequence_validation": (cfg.m1_use_sequence_validation
+                                               if cfg.m1_entry_assist else None),
+                "m1_refine_stop": cfg.m1_refine_stop if cfg.m1_entry_assist else None,
+                "m1_stop_atr_buffer": (cfg.m1_stop_atr_buffer
+                                       if cfg.m1_refine_stop else None)}
 
     def _cancel_experimental_state(self, stored: dict, current: dict) -> None:
         """Safe behaviour on config/state mismatch across a restart: cancel
@@ -1393,7 +1446,11 @@ class PaperBroker:
         cancelled = 0
         for order in self.pending:
             if order.active and (order.meta.get("is_revival") or
-                                 order.meta.get("is_reentry")):
+                                 order.meta.get("is_reentry") or
+                                 order.meta.get("entry_trigger") == "m1_sweep_reclaim"):
+                # An M1-confirmed order is cancelled outright: its stop was
+                # mutated by the (now differently-configured) assist and must
+                # never fill without fresh validation.
                 order.active = False
                 order.lifecycle_state = "cancelled_config_change"
                 cancelled += 1
@@ -1537,6 +1594,8 @@ class PaperBroker:
                 "attempted_volume": sizing.volume, "attempted_actual_risk": sizing.actual_risk,
                 "rejection_reason": sizing.rejection_reason, "time": when,
             })
+            if self.m1 is not None:
+                self.m1.on_fill_rejected(order, "sizing")
             return None
         volume, actual_risk = sizing.volume, sizing.actual_risk
 
@@ -1573,6 +1632,8 @@ class PaperBroker:
                     "portfolio_risk_cap": self.cfg.portfolio_risk_cap,
                     "rejection_reason": PORTFOLIO_RISK_CAP_EXCEEDED, "time": when,
                 })
+                if self.m1 is not None:
+                    self.m1.on_fill_rejected(order, "portfolio_risk")
                 return None
             self.stats["max_observed_open_risk_fraction"] = max(
                 self.stats.get("max_observed_open_risk_fraction", 0.0), projected)
@@ -1642,6 +1703,8 @@ class PaperBroker:
                                   **{f"fill_{k}": v for k, v in
                                      fill_context.items()}})
         self.positions.append(position)
+        if self.m1 is not None:
+            self.m1.on_fill(order, position, when, execution_spread)
         return position
 
     def _advance_lifecycle(self, candle: Candle, bar_index: int) -> None:
@@ -1758,6 +1821,8 @@ class PaperBroker:
                 self.stats.get("reentry_total_r", 0.0) + trade.r_multiple, 6)
         if self.cfg.allow_ob_reentry and self.cfg.entry_mode == "sweep_reclaim":
             self._register_reentry_candidate(trade, bar_index)
+        if self.m1 is not None:
+            self.m1.on_trade_closed(trade)
         return trade
 
     def dump_state(self, index_offset: int = 0) -> dict:
@@ -1802,7 +1867,8 @@ class PaperBroker:
                                                            ("last_exit_index",))
                                      for ob_id, hist in self.ob_entry_history.items()},
                 "invalidated_obs": sorted(self.invalidated_obs),
-                "experimental_config": self._experimental_fingerprint()}
+                "experimental_config": self._experimental_fingerprint(),
+                "m1_assist": self.m1.dump_state() if self.m1 is not None else None}
 
     def load_state(self, data: dict) -> None:
         self.initial_equity = data["initial_equity"]
@@ -1883,6 +1949,8 @@ class PaperBroker:
         self.ob_entry_history = {str(key): dict(value) for key, value
                                  in (data.get("ob_entry_history") or {}).items()}
         self.invalidated_obs = set(data.get("invalidated_obs", []))
+        if self.m1 is not None and data.get("m1_assist"):
+            self.m1.load_state(data["m1_assist"])
         stored = data.get("experimental_config")
         current = self._experimental_fingerprint()
         if stored is not None and stored != current:

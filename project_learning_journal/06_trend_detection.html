@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۶ — تشخیص Trend روی M5 | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۶ از ۲۰</div>
+    <h1>تشخیص Trend روی M5</h1>
+    <p class="chapter-sub"><code>PineSwingOBEngine</code>: Swing تأخیری، شکست ساختار، و متغیر Trend State — به‌علاوه دروازهٔ خالص <code>trend_filter.py</code>.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#concept">مفهوم: Swing تأخیری چیست</a></li>
+      <li><a href="#code1">کد: _update_swing</a></li>
+      <li><a href="#break">تشخیص شکست (BOS/CHoCH) و Trend State</a></li>
+      <li><a href="#gate">دروازهٔ خالص: trend_filter.py</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: تشخیص Swing و Trend</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    این فصل مهم‌ترین تک متغیر پروژه را باز می‌کند: <code>current_m5_trend</code>. تقریباً هر تصمیم
+    بعدی (پذیرش Order Block، لغو سفارش معلق، رد نهایی در لحظهٔ پر شدن) از همین یک عدد سرچشمه می‌گیرد.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>pine_ob_bot/pine_engine.py</code> (بخش Swing/Trend)، <code>pine_ob_bot/trend_filter.py</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۲، ۵</dd>
+  </div>
+
+  <h2 id="concept">مفهوم: Swing تأخیری (Delayed Pivot) چیست</h2>
+  <p>
+    یک Swing High یعنی «کندلی که سقفش از سقف همهٔ کندل‌های اطرافش بالاتر است». مشکل: تا وقتی چند
+    کندل بعدش را نبینید، نمی‌توانید مطمئن باشید سقفش واقعاً از همهٔ اطرافش بالاتر بوده — پس این تشخیص
+    همیشه <strong>با تأخیر</strong> است. <code>PineSwingOBEngine</code> این تأخیر را دقیقاً
+    <code>cfg.trend_swing_length</code> کندل تعریف می‌کند (پیش‌فرض ۱۲؛ یعنی حدود ۶۰ دقیقه روی M5).
+  </p>
+
+  <h2 id="code1">کد: _update_swing</h2>
+  <div class="code-path">pine_ob_bot/pine_engine.py — PineSwingOBEngine._update_swing (خلاصه‌شده)</div>
+  <pre><code class="language-python">def _update_swing(self, i: int) -> None:
+    n = self.cfg.trend_swing_length
+    if i < n:
+        return
+    candidate = i - n
+    window = slice(candidate + 1, i + 1)  # n کندل بعد از candidate
+
+    is_high = all(self.parsed_highs[candidate] > h for h in self.parsed_highs[window])
+    is_low  = all(self.parsed_lows[candidate]  < l for l in self.parsed_lows[window])
+
+    new_leg = 0 if is_high else (1 if is_low else self.leg)
+    if new_leg != self.leg:
+        self.leg = new_leg
+        pivot = Pivot(level=..., bar_index=candidate, time=..., crossed=False)
+        if new_leg == 1:
+            self.swing_low = pivot
+        else:
+            self.swing_high = pivot</code></pre>
+  <p>
+    خط به خط: <code>candidate = i - n</code> یعنی کندلی که الان بررسی می‌شود، همیشه <code>n</code>
+    کندل <strong>عقب‌تر</strong> از کندل جاری <code>i</code> است — دقیقاً همان تأخیر. حلقهٔ
+    <code>all(...)</code> بررسی می‌کند آیا <code>candidate</code> از هر <code>n</code> کندلِ
+    <em>بعد</em> از خودش (تا و شامل کندل جاری) بالاتر/پایین‌تر است یا نه. اگر leg واقعاً عوض شده
+    باشد (از سقف به کف یا برعکس)، یک <code>Pivot</code> جدید ساخته و ذخیره می‌شود.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    قبل از محاسبه، اگر کندل جاری «پرنوسان» باشد (<code>high-low &gt;= 2×ATR</code>)، مقادیر
+    parsed high/low آن <strong>جابه‌جا</strong> می‌شوند (فیلتر نویز؛ مشابه رفتار نسخهٔ اصلی Pine) —
+    یعنی یک کندل غیرعادی بزرگ نمی‌تواند به‌تنهایی یک Pivot کاذب بسازد.
+  </p>
+
+  <h2 id="break">تشخیص شکست (BOS/CHoCH) و Trend State</h2>
+  <p>
+    شکست فقط بر اساس <strong>close</strong> کندل تشخیص داده می‌شود، نه high/low (کمتر حساس به فتیله):
+    اگر یک <code>swing_high</code> فعال و هنوز عبورنکرده وجود داشته باشد و close کندل جاری از سطح آن
+    بالاتر برود، یک شکست صعودی رخ داده. نوعش («BOS» یا «CHoCH») فقط به این بستگی دارد که Trend فعلی
+    قبل از این شکست چه بوده:
+  </p>
+  <ul>
+    <li>اگر Trend فعلی <strong>همان جهت</strong> بود (یا هنوز خنثی/۰ بود) → <strong>BOS</strong> (ادامهٔ ساختار).</li>
+    <li>اگر Trend فعلی <strong>جهت مخالف</strong> بود → <strong>CHoCH</strong> (تغییر کاراکتر).</li>
+  </ul>
+  <p>
+    پس از تشخیص، <code>self.trend</code> بلافاصله به‌روز می‌شود (۱ برای صعودی، ۱- برای نزولی) —
+    این یعنی همان کندلی که CHoCH رویش رخ می‌دهد، Trend را هم تغییر می‌دهد؛ شکست بعدی در همان جهت،
+    از این به بعد BOS محسوب می‌شود، نه CHoCH.
+  </p>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی</span>
+    نظری در کد صریحاً اشاره می‌کند که در تئوری یک کندل واحد می‌تواند هم‌زمان از یک swing high و هم
+    یک swing low عبور کند (اگر رنج آن کندل به‌شدت بزرگ باشد) — ترتیب بررسی در کد ابتدا صعودی سپس
+    نزولی است، اما این حالت مضاعف در تست‌های موجود پروژه پوشش داده نشده.
+  </div>
+
+  <h2 id="gate">دروازهٔ خالص: trend_filter.py</h2>
+  <p>
+    <code>pine_engine.py</code> فقط عدد خام Trend (۱/۱-/۰) را تولید می‌کند؛ تصمیم «آیا این جهت
+    معامله الان مجاز است» در یک ماژول کاملاً جدا و بدون هیچ وابستگی دیگری زندگی می‌کند —
+    <code>trend_filter.py</code>. این جداسازی عمدی است: همان چند تابع خالص، هم در ساخت سفارش
+    (<code>PaperBroker.add_ob</code>)، هم در لحظهٔ پر شدن سفارش (<code>PaperBroker._open</code>)
+    و هم در لغو سفارش هنگام تغییر Trend (<code>update_m5_trend</code>) صدا زده می‌شود — یعنی این
+    دروازه حداقل سه بار، در سه لحظهٔ متفاوت، برای هر معامله بررسی می‌شود («دفاع در عمق»).
+  </p>
+  <table>
+    <thead><tr><th>side</th><th>current_trend</th><th>نتیجه</th></tr></thead>
+    <tbody>
+      <tr><td>buy/bull</td><td>BULLISH</td><td>مجاز</td></tr>
+      <tr><td>sell/bear</td><td>BEARISH</td><td>مجاز</td></tr>
+      <tr><td>هر side</td><td>NEUTRAL</td><td>رد — <code>TRADE_REJECTED_M5_TREND_NEUTRAL</code></td></tr>
+      <tr><td>buy/bull</td><td>BEARISH</td><td>رد — <code>TRADE_REJECTED_M5_TREND_MISMATCH</code></td></tr>
+      <tr><td>sell/bear</td><td>BULLISH</td><td>رد — <code>TRADE_REJECTED_M5_TREND_MISMATCH</code></td></tr>
+      <tr><td>رشتهٔ نامعتبر/None</td><td>هر چیزی</td><td>رد</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="lab">آزمایشگاه تعاملی: تشخیص Swing و Trend</h2>
+  <div class="lab"><div id="lab-trend-swing"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/pine_engine.py</code> → کلاس
+    <code class="small">PineSwingOBEngine</code>، متدهای <code class="small">process</code> و
+    <code class="small">_update_swing</code>. این آزمایش یک مجموعهٔ کوچک کندل از پیش تعریف‌شده را
+    واقعاً از داخل <code>PineSwingOBEngine</code> عبور می‌دهد — نسخهٔ ساده‌شده نیست.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>State machine ضمنی با یک متغیر عدد صحیح:</strong> <code>self.leg</code> و
+    <code>self.trend</code> هر دو state machine های بسیار ساده‌ای هستند که با یک عدد صحیح
+    (۰/۱ یا ۱/۰/۱-) نمایش داده می‌شوند، نه یک enum یا کلاس جدا — الگویی رایج برای state machine های
+    کوچک و پرتکرار در کد عملکرد-محور.
+  </p>
+  <p>
+    <strong>پنجرهٔ لغزان با اسلایسینگ پایتون:</strong> <code>self.parsed_highs[candidate+1 : i+1]</code>
+    نمونهٔ خوبی از slicing برای گرفتن یک بازهٔ متحرک از یک لیست در حال رشد است.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فکر کردن به Swing/Trend این ماژول به‌عنوان همان Pivot فصل بعد (Entry Pivot) — این دو detector کاملاً مستقل‌اند، با پنجره‌های متفاوت و بدون اثر متقابل.</li>
+    <li>انتظار داشتن واکنش آنیِ Trend به یک سقف/کف تازه — واکنش همیشه <code>trend_swing_length</code> کندل عقب‌تر «دیده» می‌شود، نه روی خودِ کندل اکسترمم.</li>
+    <li>فراموش کردن اینکه شکست فقط بر پایهٔ close تشخیص داده می‌شود، نه high/low.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (ساده تا متوسط) — طبق فهرست تمرین‌های اصلی: «پیدا کردن مسیر اجرای یک signal»</h4>
+    <p>در آزمایشگاه بالا، <code>trend_swing_length</code> را از ۱۲ به ۴ کاهش دهید و دوباره اجرا کنید.
+    چه اتفاقی برای تعداد Swingهای شناسایی‌شده و برای سرعت واکنش Trend می‌افتد؟ چرا؟</p>
+    <details><summary>راهنما</summary><p class="hint">پنجرهٔ کوچک‌تر یعنی تأیید سریع‌تر اما حساسیت بیشتر به نوسانات کوچک — رابطهٔ مستقیم بین اندازهٔ پنجره و تعداد Pivotهای کاذب را بررسی کنید.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا تشخیص Swing همیشه «تأخیری» است و این تأخیر دقیقاً چند کندل است؟</li>
+    <li>تفاوت بین BOS و CHoCH فقط به چه چیزی بستگی دارد؟</li>
+    <li>چرا <code>trend_filter.py</code> از <code>pine_engine.py</code> جدا نگه داشته شده؟</li>
+    <li>فیلتر نوسان (volatility filter) چه مشکلی را حل می‌کند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>PineSwingOBEngine</code> با یک پنجرهٔ تأخیری، Swing Highs/Lows را تشخیص می‌دهد؛ عبور
+    close از یک Swing، بسته به Trend قبلی، BOS یا CHoCH نامیده می‌شود و بلافاصله Trend State را
+    به‌روز می‌کند. این عدد خام سپس توسط دروازهٔ خالص <code>trend_filter.py</code> در سه لحظهٔ
+    متفاوت طول عمر یک سفارش بررسی می‌شود.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="05_data_models.html"><span class="dir">→ فصل قبل</span>مدل‌های داده</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="07_entry_pivots.html"><span class="dir">فصل بعد ←</span>Entry Pivot</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-trend-swing",
+    experimentId: "trend_detection_basic",
+    title: "تشخیص Swing و Trend روی یک دنبالهٔ کندل ثابت",
+    goal: "با تغییر طول پنجرهٔ Swing، ببینید کدام کندل‌ها به Swing High/Low تبدیل می‌شوند و Trend در کجا تغییر می‌کند.",
+    sourceRef: "فایل: pine_ob_bot/pine_engine.py — کلاس: PineSwingOBEngine — متدها: process, _update_swing",
+    fields: [
+      { name: "scenario", label: "سناریوی کندل", type: "select", default: "bull_choch_9bar",
+        options: [
+          { value: "bull_choch_9bar", label: "۹ کندل: خنثی → BOS صعودی → CHoCH نزولی (نمونهٔ تست پروژه)" },
+          { value: "simple_uptrend", label: "روند صعودی ساده" },
+          { value: "simple_downtrend", label: "روند نزولی ساده" }
+        ] },
+      { name: "trend_swing_length", label: "طول Swing روند", type: "int", default: 12, min: 2, max: 30, step: 1,
+        help: "پارامتر: trend_swing_length — پنجرهٔ تأخیری تأیید Swing/BOS/CHoCH" }
+    ]
+  });
+</script>
+</body>
+</html>

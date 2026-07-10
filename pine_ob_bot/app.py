@@ -70,6 +70,15 @@ class PaperApp:
         self.broker = PaperBroker(cfg, equity, spec)
         # Live paper trading always enforces the Entry Pivot admission gate.
         self.broker.enable_entry_pivot_gate()
+        self.m1_builder = None
+        if cfg.m1_entry_assist:
+            from .m1 import M1Builder
+            self.m1_builder = M1Builder()
+            self.log.warning(
+                "M1 Entry Assist is EXPERIMENTAL and live M1 bars are built "
+                "from polled ticks (~1/s): bar quality is approximate "
+                "(tick_count/partial flags record it); the in-progress M1 "
+                "bar is not persisted across restarts.")
         self.recorder = MarketRecorder(cfg.market_capture_dir, self.feed.symbol)
         self.demo = (DemoExecutor(feed.mt5, self.feed.symbol, cfg.demo_magic,
                                   cfg.demo_deviation_points,
@@ -236,6 +245,15 @@ class PaperApp:
         if age > self.cfg.max_live_tick_age_seconds:
             self.log.debug("ignoring stale tick age=%.1fs", age)
             return
+        if self.m1_builder is not None:
+            # Live M1 is built from POLLED ticks (~1/s), so bars are
+            # approximate; tick_count/partial flags record the quality. The
+            # closed M1 is processed before this tick executes, and the
+            # engine's first_eligible_m1_index guard keeps causality even
+            # though live M5 closes arrive on their own polling schedule.
+            closed_m1 = self.m1_builder.push(tick)
+            if closed_m1 is not None:
+                self.broker.process_m1_candle(closed_m1)
         before = {p.id for p in self.broker.positions}
         before_positions = {p.id: p for p in self.broker.positions}
         trades = self.broker.process_tick(tick)

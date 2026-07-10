@@ -1,0 +1,90 @@
+{
+  "matrix_name": "m1_matrix_0306",
+  "symbol": "XAUUSD",
+  "months": ["2026-03", "2026-04", "2026-05", "2026-06"],
+  "output_root": "pine_ob_bot_data/tick_backtests_expphase",
+  "summary_root": "pine_ob_bot_data/tick_backtests_expphase/_summaries",
+  "report_root": "pine_ob_bot_data/experiments/m1_matrix_0306",
+  "baseline_scenario": "baseline",
+  "baseline_acceptance": {
+    "trades": 126,
+    "total_r": 25.2225,
+    "profit_factor": 1.291,
+    "max_drawdown_pct": 10.0347,
+    "tolerance": 0.005
+  },
+  "common_args": [
+    "--fixed-risk",
+    "--entry-mode", "sweep_reclaim",
+    "--sweep-atr-buffer", "0.2",
+    "--trend-swing-length", "9",
+    "--entry-pivot-left", "3",
+    "--entry-pivot-right", "3",
+    "--rr", "1.5",
+    "--include-choch",
+    "--strong-choch-only",
+    "--no-dashboard"
+  ],
+  "scenarios": [
+    {
+      "name": "baseline",
+      "run_label": "XAUUSD_0306_t9_p3x3",
+      "tags": ["baseline"],
+      "args": []
+    },
+    {
+      "name": "m1shadow_r1",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1shadow_m1r1",
+      "tags": ["m1", "shadow"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "shadow", "--m1-reclaim-max-bars", "1"]
+    },
+    {
+      "name": "m1shadow_r2",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1shadow_m1r2",
+      "tags": ["m1", "shadow"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "shadow", "--m1-reclaim-max-bars", "2"]
+    },
+    {
+      "name": "m1shadow_r3",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1shadow_m1r3",
+      "tags": ["m1", "shadow"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "shadow", "--m1-reclaim-max-bars", "3"]
+    },
+    {
+      "name": "m1shadow_r5",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1shadow_m1r5",
+      "tags": ["m1", "shadow"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "shadow", "--m1-reclaim-max-bars", "5"]
+    },
+    {
+      "name": "m1seq",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1seq",
+      "tags": ["m1", "sequence"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "sequence", "--m1-reclaim-max-bars", "3"]
+    },
+    {
+      "name": "m1entry_r1",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1entry_m1r1",
+      "tags": ["m1", "entry"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "entry", "--m1-reclaim-max-bars", "1"]
+    },
+    {
+      "name": "m1entry_r2",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1entry_m1r2",
+      "tags": ["m1", "entry"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "entry", "--m1-reclaim-max-bars", "2"]
+    },
+    {
+      "name": "m1entry_r3",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1entry_m1r3",
+      "tags": ["m1", "entry"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "entry", "--m1-reclaim-max-bars", "3"]
+    },
+    {
+      "name": "m1entry_r5",
+      "run_label": "XAUUSD_0306_t9_p3x3_m1entry_m1r5",
+      "tags": ["m1", "entry"],
+      "args": ["--m1-entry-assist", "--m1-assist-mode", "entry", "--m1-reclaim-max-bars", "5"]
+    }
+  ]
+}

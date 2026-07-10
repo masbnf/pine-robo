@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۱ — Risk Sizing | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۱ از ۲۰</div>
+    <h1>Risk Sizing</h1>
+    <p class="chapter-sub">دو سؤال کاملاً جدا: «چند درصد ریسک کنیم؟» و «با آن درصد، چند لات بخریم؟» — و چرا هرگز نباید حجم را به حداقل بروکر گرد کرد.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#two-questions">دو سؤال جدا</a></li>
+      <li><a href="#code">کد: calculate_safe_position_size</a></li>
+      <li><a href="#models">انتخاب کسر ریسک: زنجیرهٔ مدل‌های تطبیقی</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: محاسبهٔ Risk Sizing</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    این فصل تنها ماژولی از کل پروژه را باز می‌کند که به گفتهٔ تحلیل کد، «هیچ نکتهٔ مبهم یا بدهی
+    فنی‌ای» ندارد — چون دقیقاً همان بخشی است که یک باگ واقعی گذشته (گرد کردن حجم به حداقل بروکر، و
+    ریسک کردن بیشتر از حد مجاز) را رفع کرده و به‌شدت تست شده است.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>pine_ob_bot/position_sizing.py</code> (کامل)، بخش انتخاب کسر ریسک در <code>pine_ob_bot/paper.py</code> → <code>PaperBroker._open</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۴، ۵، ۱۰</dd>
+  </div>
+
+  <h2 id="two-questions">دو سؤال کاملاً جدا</h2>
+  <p>پروژه عمداً این دو تصمیم را در دو جای متفاوت نگه می‌دارد:</p>
+  <ol>
+    <li><strong>«چند درصد equity را ریسک کنیم؟»</strong> — این تصمیم <em>سیاستی</em> است و داخل <code>PaperBroker._open</code> با یک زنجیرهٔ <code>if/elif</code> روی مدل‌های ریسک تطبیقی <code>BotConfig</code> گرفته می‌شود (بخش بعدی).</li>
+    <li><strong>«با آن درصد، دقیقاً چند لات؟»</strong> — این یک محاسبهٔ <em>ریاضی محض و قطعی</em> است، کاملاً مستقل از هر مدل تطبیقی، در <code>position_sizing.py</code>.</li>
+  </ol>
+  <p>این جداسازی یعنی می‌توانید کل استراتژی انتخاب درصد ریسک را عوض کنید بدون آنکه حتی یک خط از ریاضیات حجم را لمس کنید.</p>
+
+  <h2 id="code">کد: calculate_safe_position_size</h2>
+  <div class="code-path">pine_ob_bot/position_sizing.py — calculate_safe_position_size (خلاصه‌شده)</div>
+  <pre><code class="language-python">def calculate_safe_position_size(equity, risk_percent, entry_price, stop_loss,
+                                   tick_size, tick_value,
+                                   volume_min, volume_max, volume_step):
+    if equity <= 0 or risk_percent <= 0:
+        return PositionSizeResult(0, 0, 0, False, INVALID_RISK_INPUT)
+    if tick_size <= 0 or tick_value <= 0 or volume_step <= 0 or volume_min <= 0 or volume_max <= 0:
+        return PositionSizeResult(0, 0, 0, False, INVALID_SYMBOL_SPEC)
+
+    allowed_risk = equity * risk_percent
+    distance = abs(entry_price - stop_loss)
+    if distance <= 0:
+        return PositionSizeResult(0, allowed_risk, 0, False, INVALID_STOP_DISTANCE)
+
+    loss_per_lot = distance / tick_size * tick_value
+    raw_volume = allowed_risk / loss_per_lot
+    capped_volume = min(raw_volume, volume_max)
+    normalized_volume = floor((capped_volume + _STEP_EPSILON) / volume_step) * volume_step
+
+    if normalized_volume < volume_min - _STEP_EPSILON:
+        actual_risk = normalized_volume * loss_per_lot
+        return PositionSizeResult(normalized_volume, allowed_risk, actual_risk,
+                                   False, CALCULATED_VOLUME_BELOW_BROKER_MINIMUM)
+
+    actual_risk = normalized_volume * loss_per_lot
+    if actual_risk > allowed_risk * _RISK_TOLERANCE:
+        return PositionSizeResult(normalized_volume, allowed_risk, actual_risk,
+                                   False, ACTUAL_RISK_EXCEEDS_ALLOWED_RISK)
+
+    return PositionSizeResult(normalized_volume, allowed_risk, actual_risk, True, None)</code></pre>
+  <p>
+    خط به خط، نکتهٔ محوری: <code>normalized_volume</code> با <strong>floor</strong> (نه round، نه
+    ceil) به نزدیک‌ترین مضرب <code>volume_step</code> <em>پایین</em> گرد می‌شود — یعنی حجم محاسبه‌شده
+    هرگز نمی‌تواند از حد ریسک مجاز فراتر برود. اگر بعد از این گرد کردن، حجم هنوز کمتر از
+    <code>volume_min</code> باشد، تابع <strong>رد می‌کند</strong>، به‌جای اینکه حجم را تا
+    <code>volume_min</code> بالا ببرد — دقیقاً همان «رفتار قدیمی و باگ‌دار» که در تست‌ها صراحتاً به‌عنوان
+    مرجع مقایسه ذکر شده: بالا بردن حجم به حداقل بروکر، یعنی خاموش ریسک کردن بیشتر از آنچه کاربر
+    خواسته — دقیقاً همان چیزی که این تابع برای جلوگیری از آن نوشته شده.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    سناریوی رگرسیونی مشخصی که در تست‌ها به‌عنوان انگیزهٔ اصلی این ماژول ذکر شده: equity=۱۰,۰۰۰،
+    ریسک=۱٪، فاصلهٔ Stop=۱۰۰۰ — یک سناریوی واقعی که رفتار اشتباه قدیمی را آشکار می‌کرد.
+  </div>
+
+  <h2 id="models">انتخاب کسر ریسک: زنجیرهٔ مدل‌های تطبیقی</h2>
+  <p>
+    داخل <code>PaperBroker._open</code>، پیش از فراخوانی تابع بالا، یک زنجیرهٔ طولانی
+    <code>if/elif</code> روی شش پرچم متقابلاً انحصاری <code>BotConfig</code> (فصل ۴) عبور می‌کند تا
+    <code>risk_fraction</code> نهایی را انتخاب کند:
+  </p>
+  <table>
+    <thead><tr><th>مدل</th><th>معیار انتخاب کسر</th></tr></thead>
+    <tbody>
+      <tr><td>Liquidity</td><td>آیا setup یک Sweep نقدینگیِ مرتبط داشته؟ (۰/۱ سیگنال)</td></tr>
+      <tr><td>CHoCH</td><td>آیا در لحظهٔ پر شدن، یک CHoCH مخالف اخیر رخ داده؟</td></tr>
+      <tr><td>Combined Context</td><td>ترکیب Liquidity + CHoCH → امتیاز ۰/۱/۲</td></tr>
+      <tr><td>Displacement</td><td>آیا رتبهٔ درصدی قدرت شکست در چارک بالاست؟</td></tr>
+      <tr><td>CHoCH + Displacement</td><td>ترکیب هر دو (پیش‌فرض ضمنی CLI)</td></tr>
+      <tr><td>Three-Factor</td><td>CHoCH + Displacement + سن ورود → امتیاز ۰ تا ۳</td></tr>
+    </tbody>
+  </table>
+  <p>
+    روی این، دو override <strong>غیرانحصاری</strong> اضافه می‌شوند (<code>bos_three_factor_risk_enabled</code>،
+    <code>choch_split_risk_enabled</code>)، سپس یک پاداش جمع‌شدنی برای BOS مخالف M15
+    (<code>bos_m15_counter_bonus_fraction</code>، سقف ۱.۲۵٪)، و در پایان اگر setup از نوع CHoCH
+    باشد و <code>choch_risk_cap_fraction</code> تنظیم شده باشد، کسر نهایی با یک سقف حداکثری
+    <code>min(...)</code> محدود می‌شود.
+  </p>
+
+  <h2 id="lab">آزمایشگاه تعاملی: محاسبهٔ Risk Sizing</h2>
+  <div class="lab"><div id="lab-risk-sizing"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/position_sizing.py</code> → تابع
+    <code class="small">calculate_safe_position_size</code>. این آزمایش فقط لایهٔ ریاضی حجم را
+    نشان می‌دهد؛ زنجیرهٔ انتخاب <em>درصد</em> ریسک (بالا) موضوع بخشی جداست که هنوز آزمایش تعاملی
+    اختصاصی ندارد.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>Floor به‌جای Round:</strong> انتخاب جهت گرد کردن، وقتی «هرگز فراتر نرو» یک قید سخت
+    است، خودش یک تصمیم طراحی حیاتی است — <code>round()</code> می‌توانست نیمی از مواقع حجم را بالا
+    ببرد و ریسک واقعی را از حد مجاز رد کند.
+  </p>
+  <p>
+    <strong>Epsilon برای خطای اعشاری:</strong> <code>_STEP_EPSILON = 1e-9</code> فقط برای خنثی
+    کردن خطای گرد کردن ذاتی اعداد اعشاری (floating point) استفاده می‌شود، هرگز برای توجیه ریسک
+    اضافه — نکته‌ای مهم در هر محاسبهٔ مالی با اعداد اعشاری.
+  </p>
+  <p>
+    <strong>رد به‌جای گرد کردن اجباری (Fail-safe over Silent Correction):</strong> وقتی سیستم
+    نمی‌تواند قید ایمنی را برآورده کند، به‌جای «تلاش برای درست کردن» (که می‌تواند ریسک پنهان اضافه
+    کند)، آشکارا رد می‌کند و دلیل را گزارش می‌دهد.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فرض اینکه رد شدن به‌خاطر <code>CALCULATED_VOLUME_BELOW_BROKER_MINIMUM</code> یک باگ است — این رفتار عمدی و درست است؛ نمونهٔ باگ قدیمی دقیقاً برعکسش بود.</li>
+    <li>خلط دو تصمیم «چند درصد» و «چند لات» با هم و تلاش برای تغییر همزمان آن‌ها در یک نقطه از کد.</li>
+    <li>فراموش کردن اینکه شش مدل تطبیقی متقابلاً انحصاری‌اند — نمی‌توان بیش از یکی را هم‌زمان روشن کرد (فصل ۴، <code>validate()</code>).</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط)</h4>
+    <p>در آزمایشگاه بالا، مقادیر equity=۱۰۰۰۰، ریسک=۱٪، entry=۲۰۰۰، stop=۱۹۰۰ (فاصلهٔ ۱۰۰) را وارد
+    کنید. حجم محاسبه‌شده را با فرمول دستی <code>allowed_risk / (distance/tick_size*tick_value)</code>
+    مقایسه کنید، سپس <code>volume_step</code> را طوری تغییر دهید که خروجی به زیر <code>volume_min</code> برود
+    و ببینید پیام رد چیست.</p>
+    <details><summary>راهنما</summary><p class="hint">برای رساندن حجم زیر حداقل، یا equity را خیلی کم کنید یا فاصلهٔ Stop را خیلی زیاد.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا حجم با <code>floor</code> گرد می‌شود، نه <code>round</code>؟</li>
+    <li>چه اتفاقی می‌افتد اگر حجم گردشده کمتر از <code>volume_min</code> باشد؟</li>
+    <li>«انتخاب درصد ریسک» و «محاسبهٔ حجم» چرا در دو ماژول جدا نگه داشته شده‌اند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>calculate_safe_position_size</code> یک تابع خالص، قطعی و به‌شدت تست‌شده است که هرگز اجازه
+    نمی‌دهد ریسک واقعی از ریسک مجاز فراتر برود — با ترجیح رد آشکار بر گرد کردن پنهان. کدام درصد
+    ریسک به این تابع داده می‌شود، تصمیمی کاملاً جداست که در یک زنجیرهٔ مدل‌های تطبیقی داخل
+    <code>PaperBroker._open</code> گرفته می‌شود.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="10_entry_logic.html"><span class="dir">→ فصل قبل</span>قیف تصمیم‌گیری ورود</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="12_take_profit_breakeven.html"><span class="dir">فصل بعد ←</span>Take Profit و Breakeven</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-risk-sizing",
+    experimentId: "risk_sizing_calculator",
+    title: "محاسبهٔ حجم امن معامله",
+    goal: "با تغییر equity، درصد ریسک، فاصلهٔ Stop و مشخصات نماد، ببینید حجم نهایی چگونه محاسبه یا رد می‌شود.",
+    sourceRef: "فایل: pine_ob_bot/position_sizing.py — تابع: calculate_safe_position_size",
+    fields: [
+      { name: "equity", label: "Equity (سرمایه)", type: "float", default: 10000, min: 1, max: 10000000, step: 1 },
+      { name: "risk_percent", label: "درصد ریسک (Risk Fraction)", type: "float", default: 0.01, min: 0.0001, max: 1, step: 0.0001, help: "مثلاً ۰.۰۱ = ۱٪" },
+      { name: "entry_price", label: "Entry", type: "float", default: 2000, min: 0, max: 1000000, step: 0.01 },
+      { name: "stop_loss", label: "Stop", type: "float", default: 1990, min: 0, max: 1000000, step: 0.01 },
+      { name: "tick_size", label: "Tick Size", type: "float", default: 0.01, min: 0.00001, max: 100, step: 0.00001 },
+      { name: "tick_value", label: "Point Value (Tick Value)", type: "float", default: 1.0, min: 0.00001, max: 100000, step: 0.00001 },
+      { name: "volume_min", label: "Minimum Volume", type: "float", default: 0.01, min: 0.00001, max: 1000, step: 0.01 },
+      { name: "volume_max", label: "Maximum Volume", type: "float", default: 100, min: 0.01, max: 100000, step: 0.01 },
+      { name: "volume_step", label: "Volume Step", type: "float", default: 0.01, min: 0.00001, max: 100, step: 0.01 }
+    ]
+  });
+</script>
+</body>
+</html>

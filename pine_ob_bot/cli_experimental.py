@@ -95,6 +95,49 @@ def add_experimental_arguments(parser: argparse.ArgumentParser) -> None:
                             "as a fraction of equity) exceeds this cap, e.g. 0.0075 "
                             "= 0.75%%. Reject-only: volume is never reduced. "
                             "Default: no cap (legacy).")
+    group.add_argument("--m1-entry-assist", action="store_true",
+                       help="EXPERIMENTAL: build causal M1 bars from the same tick "
+                            "stream and use them to refine ENTRY TIMING on active, "
+                            "valid M5 setups. M5 stays the only source of trend/"
+                            "structure/OB/setups; requires --entry-mode sweep_reclaim "
+                            "and tick data (rejected with the OHLC --backtest path).")
+    group.add_argument("--m1-assist-mode", choices=("shadow", "sequence", "entry"),
+                       default=None,
+                       help="shadow = observe-only hypothetical M1 entries (default; "
+                            "the first evaluation stage); sequence = only "
+                            "disambiguate same-M5-bar sweep/reclaim ordering (can "
+                            "veto a false confirmation); entry = valid closed-bar "
+                            "M1 sweep+reclaim may enter an active M5 setup early. "
+                            "Requires --m1-entry-assist.")
+    group.add_argument("--m1-reclaim-max-bars", type=int, default=None, metavar="N",
+                       help="closed M1 bars the M1 reclaim may lag the M1 sweep "
+                            "(default 3; requires --m1-entry-assist)")
+    group.add_argument("--m1-max-confirmations-per-ob", type=int, default=None,
+                       metavar="N",
+                       help="cap of M1 confirmations per Order Block "
+                            "(default 1; requires --m1-entry-assist)")
+    group.add_argument("--m1-entry-expiry-bars", type=int, default=None, metavar="N",
+                       help="closed M1 bars an unfilled M1 confirmation stays valid "
+                            "before reverting to the clean M5 fallback "
+                            "(default 5; requires --m1-entry-assist)")
+    group.add_argument("--m1-require-closed-bar",
+                       action=argparse.BooleanOptionalAction, default=None,
+                       help="only CLOSED M1 bars may confirm; fill uses the first "
+                            "eligible tick after the close (default: required; "
+                            "requires --m1-entry-assist)")
+    group.add_argument("--m1-use-sequence-validation",
+                       action=argparse.BooleanOptionalAction, default=None,
+                       help="in sequence/entry modes, veto M5 same-bar confirmations "
+                            "whose M1 ordering shows reclaim-before-sweep (default: "
+                            "on; requires --m1-entry-assist)")
+    group.add_argument("--m1-refine-stop", action="store_true",
+                       help="SEPARATE experiment: place the stop behind the real M1 "
+                            "sweep extreme plus --m1-stop-atr-buffer instead of the "
+                            "M5 stop (requires --m1-entry-assist; default off so "
+                            "entry and stop effects never mix)")
+    group.add_argument("--m1-stop-atr-buffer", type=float, default=None, metavar="FLOAT",
+                       help="ATR buffer behind the M1 sweep extreme "
+                            "(default 0.20; requires --m1-refine-stop)")
 
 
 def validate_experimental_args(parser: argparse.ArgumentParser,
@@ -148,6 +191,36 @@ def validate_experimental_args(parser: argparse.ArgumentParser,
                 parser.error(f"{flag} must be positive")
     if args.portfolio_risk_cap is not None and not 0 < args.portfolio_risk_cap <= 1:
         parser.error("--portfolio-risk-cap must be in (0, 1]")
+    if not args.m1_entry_assist:
+        for dest, flag in (("m1_assist_mode", "--m1-assist-mode"),
+                           ("m1_reclaim_max_bars", "--m1-reclaim-max-bars"),
+                           ("m1_max_confirmations_per_ob",
+                            "--m1-max-confirmations-per-ob"),
+                           ("m1_entry_expiry_bars", "--m1-entry-expiry-bars"),
+                           ("m1_require_closed_bar", "--[no-]m1-require-closed-bar"),
+                           ("m1_use_sequence_validation",
+                            "--[no-]m1-use-sequence-validation")):
+            if getattr(args, dest) is not None:
+                parser.error(f"{flag} requires --m1-entry-assist")
+        if args.m1_refine_stop:
+            parser.error("--m1-refine-stop requires --m1-entry-assist")
+    else:
+        if args.entry_mode != "sweep_reclaim":
+            parser.error("--m1-entry-assist requires --entry-mode sweep_reclaim")
+        if getattr(args, "backtest", None):
+            parser.error("--m1-entry-assist needs tick data; the OHLC --backtest "
+                         "path has no ticks to build M1 bars from")
+        if args.m1_reclaim_max_bars is not None and args.m1_reclaim_max_bars < 1:
+            parser.error("--m1-reclaim-max-bars must be at least 1")
+        if (args.m1_max_confirmations_per_ob is not None and
+                args.m1_max_confirmations_per_ob < 1):
+            parser.error("--m1-max-confirmations-per-ob must be at least 1")
+        if args.m1_entry_expiry_bars is not None and args.m1_entry_expiry_bars < 1:
+            parser.error("--m1-entry-expiry-bars must be at least 1")
+    if args.m1_stop_atr_buffer is not None and not args.m1_refine_stop:
+        parser.error("--m1-stop-atr-buffer requires --m1-refine-stop")
+    if args.m1_stop_atr_buffer is not None and args.m1_stop_atr_buffer < 0:
+        parser.error("--m1-stop-atr-buffer cannot be negative")
 
 
 def resolve_experimental_config(args: argparse.Namespace) -> dict:
@@ -184,6 +257,25 @@ def resolve_experimental_config(args: argparse.Namespace) -> dict:
         kwargs["spread_wait_max_seconds"] = args.spread_wait_max_seconds
         kwargs["spread_wait_max_ticks"] = args.spread_wait_max_ticks
         kwargs["spread_wait_max_bars"] = args.spread_wait_max_bars
+    kwargs["m1_entry_assist"] = args.m1_entry_assist
+    if args.m1_entry_assist:
+        kwargs["m1_assist_mode"] = args.m1_assist_mode or "shadow"
+        kwargs["m1_reclaim_max_bars"] = (
+            args.m1_reclaim_max_bars if args.m1_reclaim_max_bars is not None else 3)
+        kwargs["m1_max_confirmations_per_ob"] = (
+            args.m1_max_confirmations_per_ob
+            if args.m1_max_confirmations_per_ob is not None else 1)
+        kwargs["m1_entry_expiry_bars"] = (
+            args.m1_entry_expiry_bars if args.m1_entry_expiry_bars is not None else 5)
+        kwargs["m1_require_closed_bar"] = (
+            True if args.m1_require_closed_bar is None else args.m1_require_closed_bar)
+        kwargs["m1_use_sequence_validation"] = (
+            True if args.m1_use_sequence_validation is None
+            else args.m1_use_sequence_validation)
+        kwargs["m1_refine_stop"] = args.m1_refine_stop
+        if args.m1_refine_stop:
+            kwargs["m1_stop_atr_buffer"] = (
+                args.m1_stop_atr_buffer if args.m1_stop_atr_buffer is not None else 0.20)
     return kwargs
 
 
@@ -211,6 +303,14 @@ def experimental_label_tokens(args: argparse.Namespace, resolved: dict) -> list[
             tokens.append(f"spwait{resolved['spread_wait_max_ticks']}t")
         else:
             tokens.append(f"spwait{resolved['spread_wait_max_bars']}b")
+    if resolved.get("m1_entry_assist"):
+        mode = resolved.get("m1_assist_mode", "shadow")
+        tokens.append({"shadow": "m1shadow", "sequence": "m1seq",
+                       "entry": "m1entry"}[mode])
+        if mode != "sequence":
+            tokens.append(f"m1r{resolved.get('m1_reclaim_max_bars', 3)}")
+        if resolved.get("m1_refine_stop"):
+            tokens.append("m1rs")
     if args.max_positions > 1:
         tokens.append(f"pos{args.max_positions}")
     if resolved.get("portfolio_risk_cap") is not None:

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ژورنال آموزشی pine_ob_bot — فهرست</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+<style>
+  .hero{ text-align:center; padding: 10px 0 30px; }
+  .hero h1{ font-size: 30px; margin-bottom: 10px; }
+  .hero p{ color: var(--text-dim); max-width: 720px; margin: 0 auto; }
+  .chapter-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0 30px; }
+  @media (max-width: 760px){ .chapter-grid{ grid-template-columns: 1fr; } }
+  .chapter-card{
+    background: var(--bg-card); border:1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; position: relative;
+  }
+  .chapter-card.disabled{ opacity: .55; }
+  .chapter-card .num{
+    position:absolute; top:14px; left:16px; font-family: var(--font-mono);
+    color: var(--text-faint); font-size: 12px;
+  }
+  .chapter-card h3{ margin: 0 0 6px; font-size: 15.5px; }
+  .chapter-card h3 a{ color: var(--text); }
+  .chapter-card h3 a:hover{ color: var(--accent); }
+  .chapter-card p{ margin: 0; font-size: 13.5px; color: var(--text-dim); }
+  .status-pill{
+    display:inline-block; font-size: 10.5px; padding: 1px 8px; border-radius: 999px;
+    margin-top: 8px; font-weight: 700;
+  }
+  .status-pill.ready{ background: var(--exp-border); color: #04140d; }
+  .status-pill.soon{ background: var(--bg-elevated); color: var(--text-faint); border:1px solid var(--border); }
+  .roadmap-steps{ counter-reset: step; list-style: none; padding: 0; }
+  .roadmap-steps li{
+    counter-increment: step; position: relative; padding-inline-start: 38px; margin: 10px 0;
+  }
+  .roadmap-steps li::before{
+    content: counter(step); position:absolute; right:0; top:0;
+    width: 26px; height:26px; border-radius:50%; background: var(--accent-dim); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <div class="chapter-kicker">project_learning_journal</div>
+    <h1>ژورنال آموزشی پروژهٔ pine_ob_bot</h1>
+    <p>
+      یک دورهٔ آموزشی پروژه‌محور که هم‌زمان برنامه‌نویسی پایتون و معماری واقعی یک ربات معاملاتی
+      Smart Money Concepts (SMC) روی XAUUSD/M5 را از روی کد واقعی همین ریپازیتوری یاد می‌دهد.
+    </p>
+  </div>
+
+  <div class="meta-block">
+    <dt>دامنهٔ مستندات</dt><dd>پکیج <code>pine_ob_bot/</code> و اسکریپت اجرایی <code>run_pine_ob_paper.py</code></dd>
+    <dt>سطح پیش‌نیاز</dt><dd>آشنایی مقدماتی با پایتون (متغیر، تابع، حلقه). نیازی به دانش قبلیِ ترید نیست — مفاهیم SMC از صفر توضیح داده می‌شوند.</dd>
+    <dt>زبان مستندات</dt><dd>فارسی، راست‌چین، کاملاً آفلاین</dd>
+    <dt>آزمایشگاه تعاملی</dt><dd>اختیاری — با اجرای <code>python project_learning_journal/serve_journal.py</code> فعال می‌شود</dd>
+  </div>
+
+  <h2>هدف دوره و اهداف یادگیری</h2>
+  <p>
+    این پروژه یک نسخهٔ مستقل و کاملاً بازتولیدشده از یک اندیکاتور Pine (LuxAlgo SMC، CC BY-NC-SA 4.0) است
+    که به‌صورت یک «paper trader» فقط‌خواندنی روی MetaTrader 5 اجرا می‌شود: هرگز سفارش واقعی ارسال نمی‌کند،
+    فقط کندل‌های بستهٔ M5 را می‌خواند، ساختار بازار (Swing، BOS، CHoCH، Order Block) را تشخیص می‌دهد،
+    سفارش‌های مجازی می‌سازد و در یک حساب کاغذیِ درون‌حافظه/SQLite اجرا می‌کند.
+  </p>
+  <p>پس از این دوره باید بتوانید:</p>
+  <ul>
+    <li>ساختار یک پروژهٔ پایتونیِ چندماژولی واقعی را بخوانید و مسیر اجرای یک ویژگی را دنبال کنید.</li>
+    <li>مفاهیم dataclass، type hint، جداسازی مسئولیت‌ها، state machine و پردازش رویدادمحور را در کد واقعی تشخیص دهید.</li>
+    <li>منطق معاملاتی SMC (Trend، Swing، Entry Pivot، Order Block، BOS، CHoCH، Sweep &amp; Reclaim، Risk Sizing، Breakeven) را جدا از هم توضیح دهید.</li>
+    <li>یک معاملهٔ کامل را از ورود داده تا بسته‌شدن پوزیشن، مرحله‌به‌مرحله در کد ردیابی کنید.</li>
+    <li>تست‌های pytest موجود پروژه را بخوانید، اجرا کنید و برای یک قابلیت جدید تست بنویسید.</li>
+    <li>با آزمایشگاه تعاملی، ورودی‌های واقعی الگوریتم را تغییر دهید و اثر آن را در لحظه ببینید.</li>
+  </ul>
+
+  <h2>راهنمای پیشنهادی مطالعه</h2>
+  <ol class="roadmap-steps">
+    <li>فصل‌های ۱ تا ۵ را به ترتیب بخوانید — کلیات، معماری، جریان اجرا، تنظیمات و مدل‌های داده. این‌ها زبان مشترک بقیهٔ دوره‌اند.</li>
+    <li>فصل‌های ۶ تا ۱۰ را به ترتیب بخوانید — هر مفهوم SMC (Trend، Entry Pivot، Order Block/BOS/CHoCH، Sweep &amp; Reclaim) و در نهایت قیف تصمیم‌گیری کامل ورود.</li>
+    <li>فصل‌های ۱۱ تا ۱۴ — مدیریت معامله: ریسک، تارگت، Breakeven، Paper Broker و چرخهٔ کامل یک معامله.</li>
+    <li>فصل‌های ۱۵ تا ۱۷ — بک‌تست، گزارش‌گیری، CLI و تست‌نویسی.</li>
+    <li>فصل ۱۸ را برای راه‌اندازی آزمایشگاه تعاملی بخوانید، سپس در هر فصل قبلی به آزمایش‌های مرتبط برگردید و آن‌ها را اجرا کنید.</li>
+    <li>فصل‌های ۱۹ و ۲۰ — تمرین‌های تجمیعی و واژه‌نامه، برای مرور و تثبیت.</li>
+  </ol>
+  <p class="small">می‌توانید خطی هم پیش بروید، اما فصل‌های ۶ به بعد به مفاهیم فصل‌های ۱ تا ۵ ارجاع می‌دهند.</p>
+
+  <h2>نمودار کلی معماری پروژه</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 920 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="نمودار معماری پروژه">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/>
+        </marker>
+      </defs>
+      <style>
+        .lyr-title{ fill:#9aa5b8; font-size:12px; font-family: sans-serif; }
+        .box{ fill:#1b2028; stroke:#2a3140; stroke-width:1.2; rx:8; }
+        .box-txt{ fill:#e7ebf3; font-size:12.5px; font-family: sans-serif; text-anchor:middle; }
+        .lane{ fill:#161a21; stroke:#2a3140; stroke-width:1; rx:10; }
+        .flow{ stroke:#5aa9ff; stroke-width:1.6; fill:none; marker-end:url(#arrow); }
+      </style>
+
+      <rect x="10" y="10" width="900" height="70" class="lane"/>
+      <text x="30" y="28" class="lyr-title">۱) دریافت داده (Data Ingestion)</text>
+      <rect x="30" y="36" width="180" height="34" class="box"/><text x="120" y="57" class="box-txt">mt5_feed.py</text>
+      <rect x="230" y="36" width="180" height="34" class="box"/><text x="320" y="57" class="box-txt">historical.py (CSV)</text>
+      <rect x="430" y="36" width="180" height="34" class="box"/><text x="520" y="57" class="box-txt">tick_historical.py</text>
+
+      <rect x="10" y="95" width="900" height="90" class="lane"/>
+      <text x="30" y="113" class="lyr-title">۲) تشخیص ساختار و کانتکست (Structure / Context)</text>
+      <rect x="30" y="122" width="170" height="34" class="box"/><text x="115" y="143" class="box-txt">pine_engine.py</text>
+      <rect x="215" y="122" width="170" height="34" class="box"/><text x="300" y="143" class="box-txt">entry_pivot.py</text>
+      <rect x="400" y="122" width="170" height="34" class="box"/><text x="485" y="143" class="box-txt">trend_filter.py</text>
+      <rect x="585" y="122" width="150" height="34" class="box"/><text x="660" y="143" class="box-txt">mtf_context.py</text>
+      <rect x="750" y="122" width="150" height="34" class="box"/><text x="825" y="143" class="box-txt">liquidity_context.py</text>
+
+      <rect x="10" y="200" width="900" height="80" class="lane"/>
+      <text x="30" y="218" class="lyr-title">۳) تصمیم و اجرا (Decision / Execution)</text>
+      <rect x="330" y="227" width="260" height="38" class="box" stroke="#5aa9ff"/>
+      <text x="460" y="250" class="box-txt" font-weight="700">paper.py — PaperBroker</text>
+      <rect x="610" y="227" width="180" height="38" class="box"/><text x="700" y="250" class="box-txt">position_sizing.py</text>
+
+      <rect x="10" y="295" width="900" height="60" class="lane"/>
+      <text x="30" y="313" class="lyr-title">۴) ارکستراسیون (زنده / بک‌تست)</text>
+      <rect x="30" y="322" width="220" height="26" class="box"/><text x="140" y="340" class="box-txt">app.py — PaperApp (زنده)</text>
+      <rect x="270" y="322" width="220" height="26" class="box"/><text x="380" y="340" class="box-txt">run_historical()</text>
+      <rect x="510" y="322" width="220" height="26" class="box"/><text x="620" y="340" class="box-txt">run_tick_historical()</text>
+
+      <rect x="10" y="370" width="900" height="55" class="lane"/>
+      <text x="30" y="388" class="lyr-title">۵) ماندگاری، گزارش و CLI</text>
+      <rect x="30" y="396" width="140" height="24" class="box"/><text x="100" y="413" class="box-txt">storage.py</text>
+      <rect x="185" y="396" width="140" height="24" class="box"/><text x="255" y="413" class="box-txt">reporting.py</text>
+      <rect x="340" y="396" width="160" height="24" class="box"/><text x="420" y="413" class="box-txt">dashboard_server.py</text>
+      <rect x="515" y="396" width="180" height="24" class="box"/><text x="605" y="413" class="box-txt">run_pine_ob_paper.py</text>
+      <rect x="710" y="396" width="140" height="24" class="box"/><text x="780" y="413" class="box-txt">cli_risk.py</text>
+
+      <path class="flow" d="M120,70 L120,95"/>
+      <path class="flow" d="M320,70 L320,95"/>
+      <path class="flow" d="M460,185 L460,200"/>
+      <path class="flow" d="M460,265 L460,295"/>
+      <path class="flow" d="M460,355 L460,370"/>
+    </svg>
+    <div class="diagram-caption">پنج لایهٔ منطقی pine_ob_bot — جزئیات هر لایه در فصل ۲ (معماری)</div>
+  </div>
+
+  <h2>فهرست فصل‌ها</h2>
+  <div class="chapter-grid">
+
+    <div class="chapter-card"><span class="num">۰۱</span>
+      <h3><a href="01_project_overview.html">کلیات پروژه</a></h3>
+      <p>مسئله‌ای که pine_ob_bot حل می‌کند، جریان اجرای خیلی کلی، و تفاوتش با پروژهٔ دیگر ریشهٔ ریپو.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۲</span>
+      <h3><a href="02_architecture.html">معماری و ماژول‌ها</a></h3>
+      <p>پنج لایهٔ پروژه، نمودار وابستگی ماژول‌ها، و اینکه هر فایل چه نقشی دارد.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۳</span>
+      <h3><a href="03_execution_flow.html">جریان اجرا: زنده در برابر بک‌تست</a></h3>
+      <p>مقایسهٔ دقیق PaperApp، run_historical و run_tick_historical و اینکه چرا نباید واگرا شوند.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۴</span>
+      <h3><a href="04_configuration.html">پیکربندی: BotConfig</a></h3>
+      <p>تک‌تک پارامترهای config.py، اعتبارسنجی، و یک باگ واقعی و رفع‌شدهٔ dataclass/property.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۵</span>
+      <h3><a href="05_data_models.html">مدل‌های داده</a></h3>
+      <p>Candle، Tick، Pivot، OrderBlock، PendingOrder، PaperPosition، Trade — با آزمایشگاه ساخت Candle.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۶</span>
+      <h3><a href="06_trend_detection.html">تشخیص Trend روی M5</a></h3>
+      <p>PineSwingOBEngine، Swing، Major BOS/CHoCH و متغیر Trend State.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۷</span>
+      <h3><a href="07_entry_pivots.html">Entry Pivot</a></h3>
+      <p>Pivot محلی مستقل از Trend، تازگی (freshness) و سن Pivot.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۸</span>
+      <h3><a href="08_order_blocks_bos_choch.html">Order Block و BOS/CHoCH</a></h3>
+      <p>ساخت، ابطال و چرخهٔ عمر Order Block؛ تفاوت BOS و CHoCH قوی/ضعیف.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۰۹</span>
+      <h3><a href="09_sweep_and_reclaim.html">Sweep and Reclaim</a></h3>
+      <p>حالت جایگزین ورود، بافر ATR و پنجرهٔ Reclaim.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۰</span>
+      <h3><a href="10_entry_logic.html">قیف تصمیم‌گیری ورود</a></h3>
+      <p>PaperBroker.add_ob از صفر تا پذیرش یا رد نهایی یک setup.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۱</span>
+      <h3><a href="11_risk_sizing.html">Risk Sizing</a></h3>
+      <p>calculate_safe_position_size و مدل‌های مختلف تعیین درصد ریسک.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۲</span>
+      <h3><a href="12_take_profit_breakeven.html">Take Profit و Breakeven</a></h3>
+      <p>محاسبهٔ هدف بر اساس RR، و منطق یک‌بارهٔ انتقال Stop به نقطهٔ سر‌به‌سر.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۳</span>
+      <h3><a href="13_paper_broker_pending_orders.html">Paper Broker و چرخهٔ Pending Order</a></h3>
+      <p>تمام state machine سفارش معلق، از formed تا filled/cancelled.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۴</span>
+      <h3><a href="14_full_trade_lifecycle.html">چرخهٔ کامل یک معامله</a></h3>
+      <p>از کندل خام تا Trade بسته‌شده، قدم‌به‌قدم، با ارجاع دقیق به کد.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۵</span>
+      <h3><a href="15_backtesting.html">بک‌تست</a></h3>
+      <p>run_historical در برابر run_tick_historical؛ اجرای بک‌تست کوچک آموزشی.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۶</span>
+      <h3><a href="16_reporting_cli.html">گزارش‌گیری و CLI</a></h3>
+      <p>reporting.py، storage.py، run_pine_ob_paper.py و پرچم‌های آن.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۷</span>
+      <h3><a href="17_testing.html">تست‌نویسی با pytest</a></h3>
+      <p>هر ۱۰ فایل تست موجود، Arrange/Act/Assert و چگونگی افزودن تست جدید.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۸</span>
+      <h3><a href="18_interactive_lab_guide.html">راه‌اندازی آزمایشگاه تعاملی</a></h3>
+      <p>نحوهٔ اجرای serve_journal.py و معماری امنیتی آزمایش‌ها.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۱۹</span>
+      <h3><a href="19_exercises.html">تمرین‌های تجمیعی</a></h3>
+      <p>تمرین‌های ترکیبی از ساده تا پیشرفته روی کل پروژه.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+    <div class="chapter-card"><span class="num">۲۰</span>
+      <h3><a href="20_glossary.html">واژه‌نامه</a></h3>
+      <p>واژه‌نامهٔ فارسی-انگلیسی تمام اصطلاحات SMC و برنامه‌نویسی به‌کاررفته.</p>
+      <span class="status-pill ready">آماده</span>
+    </div>
+
+  </div>
+
+  <p class="small">
+    گزارش نهایی تحلیل (فایل‌های بررسی‌شده، بدهی‌های فنی، پوشش تست، پیشنهادهای ادامهٔ یادگیری):
+    <a href="documentation_report.html">documentation_report.html</a>
+  </p>
+
+  <h2>وضعیت پوشش مستندات</h2>
+  <p>
+    تمام ۲۰ فصل (کلیات تا واژه‌نامه) و بک‌اند آزمایشگاه تعاملی (<code>serve_journal.py</code> +
+    <code>lab_experiments.py</code>، هر ۱۰ آزمایش) تکمیل و از طریق سرور محلی واقعی تأیید شده‌اند.
+    آزمایش‌های تعاملی جاسازی‌شده در فصل‌های ۵ تا ۱۵ بدون اجرای سرور پیام راهنما نمایش می‌دهند
+    (طبق طراحی «حالت بدون سرور»)؛ با اجرای <code>python project_learning_journal/serve_journal.py</code>
+    به‌صورت کامل فعال می‌شوند. جزئیات کامل پوشش، فایل‌های نادیده‌گرفته‌شده، بدهی‌های فنی مشاهده‌شده و
+    نتیجهٔ تست‌ها در <a href="documentation_report.html">documentation_report.html</a> ثبت شده است.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    این ژورنال دربارهٔ پکیج <code>pine_ob_bot/</code> است. یک پروژهٔ دیگر و مستقل هم در ریشهٔ همین
+    ریپازیتوری وجود دارد (<code>config/settings.py</code>, <code>backtest/engine.py</code>,
+    <code>data/loader.py</code>) که بات SMC/MTF دیگری است و موضوع این مستندات نیست — در فصل ۱ بیشتر توضیح داده می‌شود.
+  </div>
+
+  <div class="chapter-nav">
+    <span></span>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="01_project_overview.html"><span class="dir">فصل بعد ←</span>کلیات پروژه</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

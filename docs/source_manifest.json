@@ -1,5 +1,5 @@
 {
-  "acknowledged_at_utc": "2026-07-09T23:32:50+00:00",
+  "acknowledged_at_utc": "2026-07-10T18:17:21+00:00",
   "files": {
     "pine_ob_bot/__init__.py": {
       "guide_section": "public-api",
@@ -7,7 +7,7 @@
     },
     "pine_ob_bot/app.py": {
       "guide_section": "app-orchestration",
-      "sha256": "6ee9dc6a3fba8f2224aefee8ac6224bffeda88a39d2600eaf937cdd69c081a74"
+      "sha256": "39035a341db0018572748fa91927d5c515c6d35e0eff06ae78ff3d9eab7a6b47"
     },
     "pine_ob_bot/cli_risk.py": {
       "guide_section": "fixed-risk-cli",
@@ -15,7 +15,7 @@
     },
     "pine_ob_bot/config.py": {
       "guide_section": "configuration",
-      "sha256": "7d9ebc698ac97c30a6f6925f621428a8dfabac4f6a6ea9fc74dcfe259958fcb0"
+      "sha256": "eb2331eb52f1adb41efeef6cdf7c3b0cdb6c379be6994356ce3d1974a52fe940"
     },
     "pine_ob_bot/dashboard_server.py": {
       "guide_section": "dashboard",
@@ -55,7 +55,7 @@
     },
     "pine_ob_bot/paper.py": {
       "guide_section": "paper-execution-risk",
-      "sha256": "48b885d69b6a9282166b0488f011f61445419838dee7159852fa1fa7bedeb0e3"
+      "sha256": "d51f7f4f88a0ad8dc099d67586352d9f721dc0e5009b0e92d6570f3508eb8bb1"
     },
     "pine_ob_bot/pine_engine.py": {
       "guide_section": "pine-engine",
@@ -67,7 +67,7 @@
     },
     "pine_ob_bot/reporting.py": {
       "guide_section": "reporting",
-      "sha256": "49990eeee5e9e342e4ff9e16839d15a14a84bce9413bb44999a0b3b1ffd0b377"
+      "sha256": "1fc296fd8176278838732a557e187d0306b5bb57ac7f021990c3d130a8a51ebb"
     },
     "pine_ob_bot/storage.py": {
       "guide_section": "persistence",
@@ -79,11 +79,11 @@
     },
     "pine_ob_bot/tick_historical.py": {
       "guide_section": "tick-historical",
-      "sha256": "ae133616f88181cae9da4c084bebe58486d7aae8845fff2f2260181dedaa2b68"
+      "sha256": "c95f5056f931587e8bde4be641b73747d120d7df979cadc753d6d3b6a348cd52"
     },
     "run_pine_ob_paper.py": {
       "guide_section": "runner-cli",
-      "sha256": "6b5a9aef54e956075f07aa61f60ee7c9c9eebe1f4d49689b9ec7bd76779788f1"
+      "sha256": "f0f61618b6ab2c54ad04b022147eb4d205ff294cbd6f9a45f63a9c3351f91493"
     },
     "tools/fetch_mt5_ticks.py": {
       "guide_section": "tick-download",
@@ -91,7 +91,7 @@
     },
     "tools/run_tick_backtest.py": {
       "guide_section": "tick-backtest-cli",
-      "sha256": "c9b91d0d2b614b063317532962ea0bcfe4688cf1bdf8ca752ed03fdc32d70d8b"
+      "sha256": "2f8cae1b861d7a528b8470fd15b406d781a15bb5a96d0a600b5fd713caeb9d86"
     },
     "tools/run_tick_risk_comparison.py": {
       "guide_section": "tick-risk-comparison",

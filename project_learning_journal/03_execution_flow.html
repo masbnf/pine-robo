@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۳ — جریان اجرا | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۳ از ۲۰</div>
+    <h1>جریان اجرا: زنده در برابر بک‌تست</h1>
+    <p class="chapter-sub">سه راه ورود به همان منطق، ترتیب دقیق پردازش هر کندل و هر تیک، و پرچم‌های <code>run_pine_ob_paper.py</code>.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#entrypoints">سه راه ورود</a></li>
+      <li><a href="#main">جریان تابع main</a></li>
+      <li><a href="#candle-vs-tick">کندل بسته در برابر تیک</a></li>
+      <li><a href="#diagram">نمودار جریان اجرای زنده</a></li>
+      <li><a href="#cli">مرور پرچم‌های CLI</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#code">نمونهٔ کد: argparse و main</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    این فصل نشان می‌دهد وقتی <code>python run_pine_ob_paper.py</code> را اجرا می‌کنید دقیقاً چه
+    اتفاقی می‌افتد، و چرا بک‌تست و اجرای زنده «همان کد» را صدا می‌زنند. جزئیات کامل هر مرحله
+    (BOS، CHoCH، پر شدن سفارش...) به فصل‌های ۶ تا ۱۰ و تصویر کامل یک معامله به فصل ۱۴ واگذار می‌شود؛
+    اینجا فقط اسکلت زمانی/ترتیبی اجرا مهم است.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>run_pine_ob_paper.py</code>، <code>pine_ob_bot/app.py</code> (متدهای <code>run</code>، <code>on_closed_candle</code>، <code>on_tick</code>)، <code>pine_ob_bot/historical.py</code>، <code>pine_ob_bot/tick_historical.py</code></dd>
+    <dt>پیش‌نیاز</dt>
+    <dd>فصل ۲</dd>
+  </div>
+
+  <h2 id="entrypoints">سه راه ورود</h2>
+  <table>
+    <thead><tr><th>دستور</th><th>تابع اصلی</th><th>منبع داده</th><th>پایان اجرا</th></tr></thead>
+    <tbody>
+      <tr><td><code>run_pine_ob_paper.py</code></td><td><code>PaperApp(cfg, MT5ReadOnlyFeed(cfg)).run()</code></td><td>MT5 زنده</td><td>تا Ctrl+C (بی‌نهایت)</td></tr>
+      <tr><td><code>run_pine_ob_paper.py --once</code></td><td>همان، با <code>run(once=True)</code></td><td>MT5 زنده</td><td>یک دور catch-up/export و خروج</td></tr>
+      <tr><td><code>run_pine_ob_paper.py --backtest FILE.csv</code></td><td><code>run_historical(csv_path, cfg, ...)</code></td><td>CSV تاریخی</td><td>پایان فایل</td></tr>
+    </tbody>
+  </table>
+  <p>
+    هر سه مسیر یک <code>BotConfig</code> یکسان می‌سازند (تابع <code>build_config</code> در
+    <code>run_pine_ob_paper.py</code>)، فقط تفاوتشان این است که چه چیزی را با آن config صدا می‌زنند.
+    هیچ import مستقیمی از <code>run_pine_ob_paper.py</code> به <code>paper.py</code> وجود ندارد — اتصال
+    همیشه از طریق <code>app.py</code> یا <code>historical.py</code> واسطه می‌شود.
+  </p>
+
+  <h2 id="main">جریان تابع main</h2>
+  <p>ترتیب دقیق داخل <code>main(argv=None)</code>:</p>
+  <ol>
+    <li><code>parser.parse_args()</code></li>
+    <li><code>validate_fixed_risk_args(parser, args)</code> — پیش از هر کار دیگری؛ ناسازگاری پرچم‌های ریسک را رد می‌کند.</li>
+    <li><code>resolve_swing_settings(args, parser)</code> — تعارض <code>--trend-swing-length</code> و نسخهٔ منسوخ <code>--swing-length</code> را حل می‌کند.</li>
+    <li><code>build_config(args, trend_swing_length, db_path)</code> — یک <code>BotConfig</code> کامل می‌سازد.</li>
+    <li چاپ تأخیر تأیید Trend/Pivot و مسیر نهایی دیتابیس.</li>
+    <li>اگر <code>--backtest</code> داده شده: <code>run_historical(...)</code> صدا زده می‌شود و کلید/مقدارهای خلاصه چاپ می‌شود، بازگشت ۰.</li>
+    <li>در غیر این صورت: <code>PaperApp(cfg, MT5ReadOnlyFeed(cfg)).run(once=args.once)</code>.</li>
+    <li><code>KeyboardInterrupt</code> → خروج تمیز با کد ۰؛ هر استثنای دیگر → چاپ در stderr، خروج با کد ۱.</li>
+  </ol>
+
+  <h2 id="candle-vs-tick">تفاوت کندل بستهٔ M5 و تیک زنده</h2>
+  <p>
+    این پروژه دو نوع رویداد کاملاً متفاوت پردازش می‌کند و این تفکیک، ستون فقرات کل جریان اجراست:
+  </p>
+  <ul>
+    <li><strong>کندل بسته (Candle):</strong> فقط وقتی یک کندل M5 کامل و بسته شده باشد رخ می‌دهد (هر ۵ دقیقه یک بار). تمام تشخیص ساختار (Swing، BOS، CHoCH، Order Block، Entry Pivot) فقط روی کندل بسته انجام می‌شود — هرگز روی کندل در حال تشکیل.</li>
+    <li><strong>تیک (Tick):</strong> هر تغییر Bid/Ask زنده. تیک‌ها هرگز ساختار جدید نمی‌سازند؛ فقط سفارش‌های معلقِ از قبل ساخته‌شده را پر (fill) می‌کنند یا پوزیشن باز را برای SL/TP/Breakeven بررسی می‌کنند.</li>
+  </ul>
+  <p>
+    این یعنی: «تصمیم اینکه کجا باید سفارش گذاشت» همیشه با تأخیر یک کندل کامل گرفته می‌شود، اما
+    «تصمیم اینکه سفارش کِی واقعاً پر می‌شود» با دقت تیک زنده است. در بک‌تست کندلی
+    (<code>run_historical</code>) این تفکیک با یک spread ثابت شبیه‌سازی می‌شود چون تیک واقعی وجود
+    ندارد؛ در بک‌تست تیکی (<code>run_tick_historical</code>) از تیک‌های واقعی ضبط‌شده استفاده می‌شود.
+  </p>
+
+  <h2 id="diagram">نمودار جریان اجرای زنده</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="نمودار جریان اجرای زنده">
+      <style>
+        .b{ fill:#1b2028; stroke:#2a3140; }
+        .t{ fill:#e7ebf3; font-size:12px; font-family:sans-serif; text-anchor:middle; }
+        .lbl{ fill:#9aa5b8; font-size:11px; font-family:sans-serif; text-anchor:middle; }
+      </style>
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/>
+        </marker>
+      </defs>
+      <rect x="30" y="30" width="180" height="50" class="b" rx="8"/><text x="120" y="60" class="t">poll هر candle_poll_seconds</text>
+      <rect x="270" y="30" width="200" height="50" class="b" rx="8"/><text x="370" y="55" class="t">کندل جدید بسته شد؟</text><text x="370" y="70" class="lbl">on_closed_candle(candle)</text>
+      <rect x="530" y="30" width="330" height="50" class="b" rx="8" stroke="#5aa9ff"/><text x="695" y="55" class="t">موتور → Trend → Pivot → Admission</text><text x="695" y="70" class="lbl">(فصل‌های ۶ تا ۱۰)</text>
+
+      <rect x="30" y="140" width="180" height="50" class="b" rx="8"/><text x="120" y="170" class="lbl">poll هر poll_seconds</text>
+      <rect x="270" y="140" width="200" height="50" class="b" rx="8"/><text x="370" y="165" class="t">تیک جدید؟</text><text x="370" y="180" class="lbl">on_tick(tick)</text>
+      <rect x="530" y="140" width="330" height="50" class="b" rx="8" stroke="#5aa9ff"/><text x="695" y="165" class="t">process_tick → Fill / SL / TP / Breakeven</text><text x="695" y="180" class="lbl">(فصل ۱۳)</text>
+
+      <rect x="270" y="230" width="330" height="45" class="b" rx="8"/><text x="435" y="257" class="t">گزارش‌گیری async — ReportWorker → reporting.py</text>
+
+      <path d="M210,55 L270,55" class="lbl" stroke="#5aa9ff" fill="none" marker-end="url(#a3)"/>
+      <path d="M470,55 L530,55" class="lbl" stroke="#5aa9ff" fill="none" marker-end="url(#a3)"/>
+      <path d="M210,165 L270,165" class="lbl" stroke="#5aa9ff" fill="none" marker-end="url(#a3)"/>
+      <path d="M470,165 L530,165" class="lbl" stroke="#5aa9ff" fill="none" marker-end="url(#a3)"/>
+      <path d="M435,80 L435,230" class="lbl" stroke="#2a3140" fill="none" marker-end="url(#a3)"/>
+      <path d="M435,190 L435,230" class="lbl" stroke="#2a3140" fill="none" marker-end="url(#a3)"/>
+    </svg>
+    <div class="diagram-caption">
+      نکتهٔ کدی صریح: در هر دور حلقهٔ <code>PaperApp.run</code>، catch-up کندل‌های بسته همیشه
+      <em>پیش از</em> ارزیابی تیک جاری اجرا می‌شود — یعنی سفارش‌های تازه‌ساخته‌شده روی همان کندل،
+      همان دور می‌توانند با تیک بعدی پر شوند.
+    </div>
+  </div>
+
+  <h2 id="cli">مرور پرچم‌های مهم CLI</h2>
+  <p>لیست کامل در فصل ۱۶ (گزارش‌گیری و CLI) با جزئیات هر پرچم می‌آید؛ اینجا فقط دسته‌بندی کلی:</p>
+  <table>
+    <thead><tr><th>دسته</th><th>پرچم‌های نمونه</th></tr></thead>
+    <tbody>
+      <tr><td>حالت اجرا</td><td><code>--once</code>، <code>--backtest FILE</code>، <code>--run-label</code></td></tr>
+      <tr><td>پارامترهای ساختار</td><td><code>--trend-swing-length</code>، <code>--entry-pivot-left/right</code>، <code>--max-entry-pivot-age</code></td></tr>
+      <tr><td>هدف/ریسک</td><td><code>--rr</code>، <code>--target-mode</code>، شش پرچم مدل ریسک تطبیقی، <code>--fixed-risk</code></td></tr>
+      <tr><td>فیلتر ورود</td><td><code>--bos-only</code>، <code>--include-choch</code>، <code>--strong-choch-only</code>، <code>--entry-mode</code>، <code>--sweep-atr-buffer</code></td></tr>
+      <tr><td>ایمنی/زیرساخت</td><td><code>--demo-orders</code>، <code>--no-dashboard</code>، <code>--no-market-capture</code></td></tr>
+      <tr><td>آزمایشی</td><td><code>--sweep-reclaim-max-bars</code>، <code>--revival-shadow-audit</code>، <code>--lifecycle</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>argparse:</strong> ماژول استاندارد پایتون برای ساخت CLI. <code>build_parser()</code> یک
+    <code>ArgumentParser</code> می‌سازد و با <code>add_argument</code> هر پرچم را تعریف می‌کند؛
+    <code>parser.error(...)</code> پیام خطا چاپ می‌کند و با کد خروج غیرصفر متوقف می‌شود — الگوی
+    استاندارد برای رد کردن ترکیب نامعتبر ورودی‌ها (مثل <code>--swing-length</code> و
+    <code>--trend-swing-length</code> ناسازگار).
+  </p>
+  <p>
+    <strong>الگوی <code>if __name__ == "__main__":</code></strong> باعث می‌شود <code>main()</code>
+    فقط وقتی فایل مستقیماً اجرا شود صدا زده شود، نه وقتی import شود — این به تست‌ها اجازه می‌دهد
+    توابع این فایل را بدون اجرای کل برنامه import کنند.
+  </p>
+  <p>
+    <strong>Polling loop (حلقهٔ نظرسنجی):</strong> <code>PaperApp.run</code> یک حلقهٔ بی‌نهایت است که
+    با فاصلهٔ زمانی مشخص (<code>candle_poll_seconds</code>، <code>poll_seconds</code>) وضعیت را
+    بررسی می‌کند — الگویی ساده‌تر از async/event loop، اما برای یک فید کندل ۵ دقیقه‌ای کاملاً کافی.
+  </p>
+
+  <div class="code-path">run_pine_ob_paper.py — resolve_swing_settings (خلاصه‌شده)</div>
+  <pre><code class="language-python">def resolve_swing_settings(args, parser):
+    if args.trend_swing_length is not None and args.swing_length is not None:
+        if args.trend_swing_length != args.swing_length:
+            parser.error("--trend-swing-length and --swing-length disagree")
+    trend_swing_length = args.trend_swing_length or args.swing_length or 12
+    if trend_swing_length < 2:
+        parser.error("--trend-swing-length must be >= 2")
+    return trend_swing_length, args.entry_pivot_left, args.entry_pivot_right</code></pre>
+  <p>
+    این تابع یک الگوی رایج CLI را نشان می‌دهد: «سازگاری با نسخهٔ قدیمی» (پرچم منسوخ
+    <code>--swing-length</code>) بدون شکستن کد قدیمی، در حالی که مقدار جدید و صحیح
+    (<code>--trend-swing-length</code>) هم پشتیبانی می‌شود.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>تصور اینکه بک‌تست کندلی (<code>run_historical</code>) دقیقاً همان‌قدر دقیق است که بک‌تست تیکی — نیست؛ چون spread ثابت به‌جای Bid/Ask واقعی استفاده می‌کند (جزئیات فصل ۱۵).</li>
+    <li>فراموش کردن اینکه هیچ ساختار جدیدی (Swing/BOS/CHoCH/OB) روی تیک ساخته نمی‌شود — فقط روی کندل بسته.</li>
+    <li>اجرای <code>--backtest</code> و انتظار داشتن دسترسی زنده MT5 — این حالت اصلاً <code>MT5ReadOnlyFeed</code> نمی‌سازد.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (ساده تا متوسط)</h4>
+    <p>فرض کنید <code>candle_poll_seconds=5</code> و <code>poll_seconds=1</code>. تخمین بزنید در یک
+    دورهٔ ۵ دقیقه‌ای بین دو کندل بسته، حلقهٔ <code>PaperApp.run</code> تقریباً چند بار وضعیت تیک را
+    بررسی می‌کند و چرا این عدد در کد «تضمین‌شده» نیست (نکتهٔ Inference در فصل ۱۴).</p>
+    <details>
+      <summary>راهنما</summary>
+      <p class="hint">به تفاوت «فاصلهٔ نظرسنجی پیکربندی‌شده» و «زمان واقعیِ دیوار» (wall-clock) که بستگی به کندزدگی سیستم/شبکه دارد فکر کنید.</p>
+    </details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>سه راه ورود اجرای این پروژه کدام‌اند و هرکدام چه تابعی را صدا می‌زنند؟</li>
+    <li>چرا تشخیص ساختار فقط روی کندل بسته انجام می‌شود، نه روی تیک؟</li>
+    <li>چه چیزی «تضمین‌شدهٔ کدی» است دربارهٔ ترتیب پردازش کندل و تیک در <code>PaperApp.run</code>؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    سه اجراکننده (زنده، بک‌تست کندلی، بک‌تست تیکی) یک <code>BotConfig</code> مشترک می‌سازند و همان
+    زنجیرهٔ موتور→Trend→Pivot→Admission→Fill را با ترتیب یکسان صدا می‌زنند. تفاوت کندل بسته
+    (تصمیم ساختاری) و تیک زنده (پر شدن سفارش) ستون فقرات کل جریان اجراست.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="02_architecture.html"><span class="dir">→ فصل قبل</span>معماری و ماژول‌ها</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="04_configuration.html"><span class="dir">فصل بعد ←</span>پیکربندی</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

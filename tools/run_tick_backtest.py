@@ -36,15 +36,23 @@ from pine_ob_bot.cli_experimental import (add_experimental_arguments, build_run_
                                           validate_experimental_args)
 from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
+from pine_ob_bot.feature_flags import (add_runtime_arguments, effective_config_report,
+                                       write_config_snapshots)
 from pine_ob_bot.tick_historical import run_tick_historical
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--month", required=True, metavar="YYYY-MM|all",
-                        help="single month directory under --data-root, or 'all' to "
-                             "replay every month directory that actually contains "
-                             "tick files for --symbol, in chronological order")
+    months_group = parser.add_mutually_exclusive_group(required=True)
+    months_group.add_argument("--month", metavar="YYYY-MM|all",
+                              help="single month directory under --data-root, or 'all' to "
+                                   "replay every month directory that actually contains "
+                                   "tick files for --symbol, in chronological order")
+    months_group.add_argument("--months", metavar="YYYY-MM,YYYY-MM,...",
+                              help="comma-separated month directories under --data-root, "
+                                   "replayed exactly like --month all (ONE continuous "
+                                   "backtest: single warm-up, continuous equity and "
+                                   "state) but restricted to the listed months")
     parser.add_argument("--symbol", default="XAUUSD")
     parser.add_argument("--data-root", type=Path,
                         default=Path("pine_ob_bot_data/historical_ticks"))
@@ -133,7 +141,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
     add_experimental_arguments(parser)
+    add_runtime_arguments(parser)
     return parser
+
+
+def parse_months_list(value: str,
+                      parser: argparse.ArgumentParser) -> list[str]:
+    months = [m.strip() for m in value.split(",") if m.strip()]
+    if not months:
+        parser.error("--months requires at least one YYYY-MM entry")
+    duplicates = sorted({m for m in months if months.count(m) > 1})
+    if duplicates:
+        parser.error(f"--months lists duplicate entries: {', '.join(duplicates)}")
+    return months
+
+
+def months_label_token(months: list[str]) -> str:
+    """Compact auto-label token: ["2026-03", ..., "2026-06"] -> "0306",
+    matching the naming of the existing 0306 runs. --run-label overrides."""
+    parts = [m.split("-", 1) for m in months]
+    if all(len(p) == 2 and p[1].isdigit() for p in parts):
+        return f"{parts[0][1]}{parts[-1][1]}"
+    return "-".join(months)
 
 
 def resolve_swing_settings(args: argparse.Namespace,
@@ -218,7 +247,44 @@ def main(argv=None) -> int:
     validate_experimental_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
-    if args.month.lower() == "all":
+    cfg = build_config(args, trend_swing_length)
+    cfg.validate()
+    resolved = resolve_experimental_config(args)
+    tokens = experimental_label_tokens(args, resolved)
+    months = parse_months_list(args.months, parser) if args.months else None
+    month_token = months_label_token(months) if months else args.month
+    base_label = (f"{args.symbol}_{month_token}"
+                  f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}")
+    effective_label = args.run_label or build_run_label(base_label, tokens, resolved)
+    safe_label = "".join(ch if ch.isalnum() or ch in "-_" else "_"
+                         for ch in effective_label)
+    run_info = {"data_source": "Tick", "run_label": effective_label,
+                "output_directory": args.out,
+                "trades_csv": args.out / f"tick_{safe_label}_trades.csv",
+                "events_log": args.out / f"tick_{safe_label}_events.jsonl",
+                "config_snapshot": args.out / f"{safe_label}_effective_config.json",
+                "argv": list(argv) if argv is not None else None}
+    print(effective_config_report(cfg, run_info))
+    if args.config_only:
+        # Parse+validate+report only: no tick file is read, no state changes.
+        return 0
+
+    if months:
+        # Same continuity contract as --month all -- one continuous replay
+        # (single warm-up, continuous equity and state) -- but restricted to
+        # exactly the listed month directories. Every listed month must hold
+        # tick files for the symbol; a typo'd or empty month is an error, not
+        # a silent skip.
+        paths = []
+        for month in months:
+            found = sorted((args.data_root / month).glob(f"ticks_{args.symbol}_*.csv*"))
+            if not found:
+                parser.error(f"no tick files found for {args.symbol} {month} "
+                             f"under {args.data_root}")
+            paths.extend(found)
+        paths.sort(key=lambda p: p.name)
+        print(f"months included: {', '.join(months)} ({len(paths)} files)")
+    elif args.month.lower() == "all":
         # Every month directory under --data-root that actually holds tick
         # files for this symbol; directories without matching ticks (or plain
         # files like coverage.json) are skipped. Filenames embed the date
@@ -241,26 +307,16 @@ def main(argv=None) -> int:
         if not paths:
             parser.error(f"no tick files found for {args.symbol} {args.month}")
 
-    cfg = build_config(args, trend_swing_length)
-
-    # Keeps different swing/pivot/symbol/experiment runs on the same month
-    # from ever overwriting each other's output files (same idea as
-    # run_pine_ob_paper.py's auto-generated --run-label for --backtest).
-    # Experimental flags append their own tokens; when the tokenized name
-    # would get unwieldy a stable config hash replaces the tokens.
-    resolved = resolve_experimental_config(args)
-    tokens = experimental_label_tokens(args, resolved)
-    base_label = (f"{args.symbol}_{args.month}"
-                  f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}")
-    effective_label = args.run_label or build_run_label(base_label, tokens, resolved)
-
     print(f"M5 trend swing length: {trend_swing_length}")
     print(f"M5 trend swing confirmation delay: {trend_swing_length * 5} minutes")
     print(f"M5 entry pivot: left={entry_pivot_left} right={entry_pivot_right}")
     print(f"M5 entry pivot confirmation delay: {entry_pivot_right * 5} minutes")
 
+    write_config_snapshots(args.out, safe_label, cfg, run_info)
     summary = run_tick_historical(paths, cfg, args.initial_equity, args.out,
-                                  effective_label, args.warmup_bars)
+                                  effective_label, args.warmup_bars,
+                                  decision_log=args.decision_log,
+                                  m1_debug=args.debug_m1)
     for key, value in summary.items():
         print(f"{key}: {value}")
     return 0

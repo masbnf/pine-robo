@@ -136,6 +136,40 @@ class BotConfig:
     # volume is never silently reduced, and a rejected order is deactivated,
     # not retried. None keeps the legacy unlimited behaviour.
     portfolio_risk_cap: float | None = None
+    # ------------------------------------------------------------------
+    # M1 Entry Assist (experimental, tick paths only, all default OFF).
+    # M5 stays the ONLY source of trend/swing/BOS/CHoCH/entry-pivot/OB/
+    # setup direction; M1 may only refine ENTRY TIMING on an active, valid
+    # M5 setup. Modes: "shadow" (observe-only hypothetical entries),
+    # "sequence" (only disambiguate same-bar M5 sweep/reclaim ordering --
+    # can veto a false M5 confirmation, creates nothing), "entry" (a valid
+    # closed-bar M1 sweep+reclaim may confirm an active M5 setup early;
+    # the fill still runs through the normal tick pipeline: spread,
+    # spread-wait, position limit, portfolio cap, sizing). With
+    # m1_entry_assist False no M1 bar is even built (zero overhead) and
+    # behaviour is bit-identical to baseline.
+    # ------------------------------------------------------------------
+    m1_entry_assist: bool = False
+    m1_assist_mode: str = "shadow"
+    # Closed M1 bars the M1 reclaim may lag the M1 sweep.
+    m1_reclaim_max_bars: int = 3
+    # Cap of M1 confirmations (consumed or expired) per Order Block.
+    m1_max_confirmations_per_ob: int = 1
+    # Closed M1 bars an unfilled M1 confirmation stays valid before the
+    # order reverts to the untouched M5 fallback path.
+    m1_entry_expiry_bars: int = 5
+    # Only CLOSED M1 bars may confirm (never the forming bar's high/low);
+    # the fill then uses the first eligible tick after that close.
+    m1_require_closed_bar: bool = True
+    # In sequence/entry modes, veto an M5 same-bar confirmation whose M1
+    # ordering shows the reclaim happened BEFORE the sweep. Never applies
+    # in shadow mode (shadow must not change real behaviour).
+    m1_use_sequence_validation: bool = True
+    # Separate experiment: place the stop behind the real M1 sweep extreme
+    # (plus buffer) instead of the M5 stop. Kept apart from entry assist so
+    # entry and stop effects are never mixed. Default OFF.
+    m1_refine_stop: bool = False
+    m1_stop_atr_buffer: float = 0.20
     entry_lifecycle_enabled: bool = False
     poll_seconds: float = 1.0
     fallback_spread: float = 0.20
@@ -256,6 +290,20 @@ class BotConfig:
             raise ValueError("spread wait limits require wait_for_spread_after_confirmation")
         if self.portfolio_risk_cap is not None and not 0 < self.portfolio_risk_cap <= 1:
             raise ValueError("portfolio_risk_cap must be in (0, 1] or None")
+        if self.m1_assist_mode not in {"shadow", "sequence", "entry"}:
+            raise ValueError("m1_assist_mode must be shadow, sequence or entry")
+        if self.m1_reclaim_max_bars < 1:
+            raise ValueError("m1_reclaim_max_bars must be at least 1")
+        if self.m1_max_confirmations_per_ob < 1:
+            raise ValueError("m1_max_confirmations_per_ob must be at least 1")
+        if self.m1_entry_expiry_bars < 1:
+            raise ValueError("m1_entry_expiry_bars must be at least 1")
+        if self.m1_entry_assist and self.entry_mode != "sweep_reclaim":
+            raise ValueError("m1_entry_assist requires entry_mode='sweep_reclaim'")
+        if self.m1_refine_stop and not self.m1_entry_assist:
+            raise ValueError("m1_refine_stop requires m1_entry_assist")
+        if self.m1_stop_atr_buffer < 0:
+            raise ValueError("m1_stop_atr_buffer cannot be negative")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
         # Values above 1 mean "burst fill": while the broker is flat, up to

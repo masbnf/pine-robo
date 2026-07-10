@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۶ — گزارش‌گیری و CLI | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۶ از ۲۰</div>
+    <h1>گزارش‌گیری و CLI</h1>
+    <p class="chapter-sub">چگونه یک <code>Trade</code> بسته‌شده به CSV/HTML تبدیل می‌شود، کجا ذخیره می‌شود، و پرچم‌های کامل <code>run_pine_ob_paper.py</code>.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#reporting">reporting.py: از Trade تا HTML</a></li>
+      <li><a href="#worker">report_worker.py: گزارش بدون مسدودکردن معامله</a></li>
+      <li><a href="#storage">storage.py: ماندگاری SQLite</a></li>
+      <li><a href="#dashboard">dashboard_server.py و market_recorder.py</a></li>
+      <li><a href="#cli">cli_risk.py و پرچم‌های کامل CLI</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    یک معاملهٔ بسته‌شده (فصل ۱۴) به‌تنهایی بی‌فایده است مگر جایی ذخیره و قابل‌مشاهده شود. این فصل
+    پوستهٔ بیرونی پروژه را باز می‌کند: گزارش‌گیری، ماندگاری، و رابط خط فرمان.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>reporting.py</code>، <code>report_worker.py</code>، <code>storage.py</code>، <code>dashboard_server.py</code>، <code>market_recorder.py</code>، <code>cli_risk.py</code>، <code>run_pine_ob_paper.py</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۳، ۱۴، ۱۵</dd>
+  </div>
+
+  <h2 id="reporting">reporting.py: از Trade تا HTML</h2>
+  <table>
+    <thead><tr><th>تابع</th><th>خروجی</th></tr></thead>
+    <tbody>
+      <tr><td><code>export_reports</code></td><td>CSV کامل معاملات + یک CSV خلاصهٔ فشرده (win rate، Total R، Profit Factor، Max Drawdown)</td></tr>
+      <tr><td><code>export_breakdown</code></td><td>گروه‌بندی روی ۲۰+ بُعد (جهت، نوع شکست، ساعت/روز هفته، هم‌ترازی M15، چارک‌های Displacement...) با <code>pandas</code></td></tr>
+      <tr><td><code>export_html</code></td><td>داشبورد کامل، آفلاین، تک‌فایل (CSS درون‌خطی، بدون وابستگی خارجی)، با نمودار Equity به‌صورت SVG دستی</td></tr>
+      <tr><td><code>export_daily_html</code>/<code>export_daily_metrics</code></td><td>نسخهٔ روزانه — یک کپی سطحی از بروکر با فقط معاملات همان روز و equity بازمحاسبه‌شده</td></tr>
+    </tbody>
+  </table>
+  <p>
+    نکتهٔ ظریف در <code>export_daily_html</code>: به‌جای فیلتر کردن سادهٔ معاملات، یک
+    <strong>کپی سطحی</strong> (<code>copy.copy</code>) از کل بروکر ساخته می‌شود که فقط
+    <code>trades</code>ی آن روز را دارد و equity ابتدایی‌اش، equity واقعی <em>پایان روز قبل</em>
+    است — یعنی نمودار equity روزانه، منحنی intraday واقعی نشان می‌دهد، نه کل تاریخچه.
+  </p>
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    <code>export_daily_metrics</code> با الگوی «Upsert» کار می‌کند: سطر همان روز از CSV موجود
+    حذف، سطر جدید اضافه، دوباره بر اساس تاریخ مرتب و کل فایل بازنویسی می‌شود — یعنی اجرای دوباره
+    برای همان روز idempotent است (سطر تکراری نمی‌سازد).
+  </div>
+
+  <h2 id="worker">report_worker.py: گزارش بدون مسدودکردن معامله</h2>
+  <p>
+    <code>ReportWorker</code> یک نخ daemon با یک صف محدود (<code>maxsize=2</code>) است.
+    <code>submit(...)</code> هرگز مسدود نمی‌شود — اگر صف پر باشد، کار جدید <strong>دور ریخته</strong>
+    می‌شود (نه اینکه صبر کند)، چون «یک اسنپ‌شات جدیدتر در تازه‌سازی بعدی خودش می‌آید». این یعنی
+    تولید گزارش هرگز نمی‌تواند حلقهٔ معاملهٔ زنده را کند کند.
+  </p>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی</span>
+    در لحظهٔ خاموش‌شدن، <code>close()</code> یک سنتینل <code>None</code> در صف می‌گذارد و منتظر
+    اتمام نخ می‌ماند (حداکثر ۶۰ ثانیه) — اما اگر صف دقیقاً همان لحظه پر باشد، آخرین
+    <code>submit</code> ممکن است همان‌طور که در حالت عادی دور ریخته می‌شود، در لحظهٔ خاموش‌شدن هم
+    دور ریخته شود. هیچ تستی این حالت مرزی را پوشش نمی‌دهد؛ در عمل بسیار بعید است (صف فقط ۲ ظرفیت
+    و گزارش‌های shutdown معمولاً تنها کار در صف‌اند)، اما تضمین صددرصدی کدی برای «آخرین گزارش
+    همیشه نوشته می‌شود» وجود ندارد.
+  </div>
+
+  <h2 id="storage">storage.py: ماندگاری SQLite</h2>
+  <p>
+    <code>StateStore</code> سه جدول دارد: <code>state</code> (یک ردیف اسنپ‌شات JSON اتمی، با
+    <code>INSERT ... ON CONFLICT DO UPDATE</code>)، <code>trades</code> (append-only،
+    <code>INSERT OR IGNORE</code> — یعنی ایمن در برابر replay تکراری)، و <code>events</code>
+    (لاگ ممیزی هر تصمیم قابل‌توجه: رد، لغو، arm شدن Breakeven، اقدامات Demo).
+  </p>
+  <p>
+    این طراحی توضیح می‌دهد چرا <code>PaperBroker.dump_state</code> (فصل ۱۳) عمداً معاملات را کنار
+    می‌گذارد (<code>"trades": []</code>): آن‌ها جداگانه در جدول <code>trades</code> ذخیره می‌شوند و
+    فقط در <code>StateStore.load</code> دوباره به اسنپ‌شات بازگردانده می‌شوند — تا اسنپ‌شات JSON با
+    رشد پروژه سنگین نشود.
+  </p>
+
+  <h2 id="dashboard">dashboard_server.py و market_recorder.py</h2>
+  <p>
+    <code>DashboardServer</code> یک <code>ThreadingHTTPServer</code> محلی است که فقط فایل‌های
+    گزارش را سرو می‌کند (فقط‌خواندنی از نظر داده)، با یک <code>index.html</code> که هر ۳۰ ثانیه به
+    آخرین گزارش ریدایرکت می‌شود. <code>MarketRecorder</code> هر تیک/کندل متمایز را در فایل‌های CSV
+    (تیک‌ها روزانه، کندل‌ها تجمیعی) با <code>flush()</code> بعد از هر نوشتن ذخیره می‌کند — برای
+    بازتولید بک‌تست تیکی بعدی (فصل ۱۵).
+  </p>
+  <div class="callout warn">
+    <span class="callout-tag">هشدار — ایمنی آزمایشگاه</span>
+    <code>DashboardServer</code> یک HTTP listener واقعی باز می‌کند. طبق فصل ۲ (ماژول‌های حساس)،
+    آزمایشگاه تعاملی این ژورنال هرگز آن را واقعاً اجرا نمی‌کند — فقط رفتارش توضیح داده می‌شود.
+  </div>
+
+  <h2 id="cli">cli_risk.py و پرچم‌های کامل CLI</h2>
+  <p>
+    <code>cli_risk.py</code> فقط دو تابع دارد اما یک باگ واقعی گذشته را حل می‌کند: مستندشده در
+    خودِ کد که زمانی BOS با کسر ریسک کامل و CHoCH با سقف ۰.۵٪ اجرا می‌شد <em>حتی زیر پرچم
+    <code>--fixed-risk</code></em> — یعنی این پرچم دقیقاً همان کاری که قرار بود انجام نمی‌داد.
+    <code>validate_fixed_risk_args</code> حالا هر ترکیب ناسازگار (<code>--fixed-risk</code> +
+    هر مدل تطبیقی، یا + <code>--choch-risk-cap</code> صریح) را همان لحظهٔ parse رد می‌کند.
+  </p>
+  <p>جدول کامل دسته‌های پرچم <code>run_pine_ob_paper.py</code> (فصل ۳ فقط خلاصه‌اش را نشان داد):</p>
+  <table>
+    <thead><tr><th>پرچم</th><th>معنی</th></tr></thead>
+    <tbody>
+      <tr><td><code>--once</code></td><td>یک دور catch-up/export و خروج</td></tr>
+      <tr><td><code>--symbol</code></td><td>نماد (پیش‌فرض XAUUSD)</td></tr>
+      <tr><td><code>--trend-swing-length</code> / <code>--swing-length</code></td><td>طول پنجرهٔ Swing (دومی منسوخ، فصل ۴)</td></tr>
+      <tr><td><code>--entry-pivot-left/right</code></td><td>پنجرهٔ Entry Pivot (فصل ۷)</td></tr>
+      <tr><td><code>--max-entry-pivot-age</code></td><td>سقف سن Pivot</td></tr>
+      <tr><td><code>--backtest CSV</code></td><td>سوییچ کامل به حالت <code>run_historical</code> (فصل ۱۵)</td></tr>
+      <tr><td><code>--rr</code> / <code>--target-mode</code></td><td>نسبت پاداش/ریسک و حالت هدف (فصل ۱۲)</td></tr>
+      <tr><td><code>--breakeven-at-r</code></td><td>آستانهٔ فعال‌سازی Breakeven (فصل ۱۲)</td></tr>
+      <tr><td>شش پرچم مدل ریسک تطبیقی + <code>--fixed-risk</code> + <code>--choch-risk-cap</code></td><td>انتخاب کسر ریسک (فصل ۱۱)</td></tr>
+      <tr><td><code>--bos-only</code> / <code>--include-choch</code> / <code>--strong-choch-only</code></td><td>فیلتر نوع شکست (فصل ۸، ۱۰)</td></tr>
+      <tr><td><code>--entry-mode</code> / <code>--sweep-atr-buffer</code> / <code>--sweep-reclaim-max-bars</code></td><td>حالت ورود Sweep &amp; Reclaim (فصل ۹)</td></tr>
+      <tr><td><code>--min-entry-wait</code></td><td>حداقل تأخیر کندلی قبل از پر شدن</td></tr>
+      <tr><td><code>--revival-shadow-audit</code></td><td>آزمایشی، فقط مشاهده‌گر (فصل ۱۰)</td></tr>
+      <tr><td><code>--lifecycle</code></td><td>فعال‌سازی formed→accepted→armed تجربی (فصل ۱۳)</td></tr>
+      <tr><td><code>--demo-orders</code></td><td>فعال‌سازی آینهٔ Demo (فقط حساب Demo واقعی)</td></tr>
+      <tr><td><code>--no-dashboard</code> / <code>--dashboard-host</code> / <code>--dashboard-port</code></td><td>کنترل داشبورد محلی</td></tr>
+      <tr><td><code>--no-market-capture</code></td><td>غیرفعال‌سازی MarketRecorder</td></tr>
+      <tr><td><code>--run-label</code></td><td>پسوند نام‌گذاری خروجی‌های بک‌تست</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>الگوی صف کراندار با دور ریختن (Bounded Queue with Drop Policy):</strong> وقتی «تأخیر
+    غیرقابل‌قبول» بدتر از «از دست دادن یک بروزرسانی» است (مثل گزارش‌گیری دوره‌ای)، صف با ظرفیت
+    محدود و سیاست dropping، ساده‌تر و ایمن‌تر از صف نامحدود است.
+  </p>
+  <p>
+    <strong>Idempotency (خاصیت یکسان‌ماندن با تکرار):</strong> <code>INSERT OR IGNORE</code> در
+    SQLite و الگوی Upsert در CSV، هر دو یک اصل مشترک را پیاده می‌کنند: اجرای دوبارهٔ یک عملیات
+    نباید داده را خراب یا تکراری کند — حیاتی برای سیستمی که ممکن است ری‌استارت شود.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>انتظار داشتن معاملات در خروجی <code>PaperBroker.dump_state</code> — عمداً حذف شده‌اند؛ سراغ جدول <code>trades</code> در SQLite یا CSV بروید.</li>
+    <li>اجرای <code>DashboardServer</code> در محیط آزمایشگاه یا هر محیط sandbox — طبق فصل ۲، فقط باید توضیح داده شود.</li>
+    <li>گمان اینکه <code>--fixed-risk</code> به‌تنهایی هر مدل تطبیقی را خاموش می‌کند بدون بررسی تعارض CLI — اگر هم‌زمان با یک مدل دیگر بیاید، همان لحظه با خطا متوقف می‌شود.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط) — طبق فهرست تمرین‌های اصلی: «اضافه‌کردن یک ستون به گزارش معاملات»</h4>
+    <p>فرض کنید می‌خواهید ستون جدیدی به CSV معاملات (<code>export_reports</code>) اضافه کنید که
+    نشان دهد آیا معامله در جلسهٔ معاملاتی لندن باز شده یا نه. کجای <code>reporting.py</code> باید
+    تغییر کند؟ آیا این تغییر روی <code>Trade.meta</code> هم اثر می‌گذارد یا فقط روی خروجی گزارش؟</p>
+    <details><summary>راهنما</summary><p class="hint">به این فکر کنید که آیا این اطلاعات باید همان لحظهٔ <code>_close</code> (فصل ۱۲) در <code>meta</code> ذخیره شود، یا فقط در لحظهٔ گزارش‌گیری محاسبه شود.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا <code>ReportWorker.submit</code> هرگز مسدود نمی‌شود؟</li>
+    <li>چرا معاملات از <code>dump_state</code> حذف شده‌اند؟</li>
+    <li>باگ واقعی‌ای که <code>cli_risk.py</code> حل کرده چه بود؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    گزارش‌گیری در یک نخ جدا و با صف کراندار اجرا می‌شود تا هرگز حلقهٔ معامله را کند نکند؛ ماندگاری
+    در SQLite با سه جدول جدا (اسنپ‌شات/معاملات/رویدادها) طراحی شده تا اسنپ‌شات سبک بماند؛ و
+    <code>run_pine_ob_paper.py</code> تمام این اجزا را از طریق یک <code>BotConfig</code> واحد به هم وصل می‌کند.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="15_backtesting.html"><span class="dir">→ فصل قبل</span>بک‌تست</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="17_testing.html"><span class="dir">فصل بعد ←</span>تست‌نویسی با pytest</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

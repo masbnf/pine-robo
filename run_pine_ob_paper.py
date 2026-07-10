@@ -30,6 +30,8 @@ from pine_ob_bot.cli_experimental import (add_experimental_arguments, build_run_
                                           validate_experimental_args)
 from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
+from pine_ob_bot.feature_flags import (add_runtime_arguments, effective_config_report,
+                                       write_config_snapshots)
 from pine_ob_bot.mt5_feed import MT5ReadOnlyFeed
 from pine_ob_bot.historical import run_historical
 
@@ -143,6 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
     add_experimental_arguments(parser)
+    add_runtime_arguments(parser)
     return parser
 
 
@@ -259,6 +262,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     cfg = build_config(args, trend_swing_length, db_path)
 
+    run_info = {"data_source": "OHLC CSV" if args.backtest else "MT5 live ticks",
+                "run_label": effective_run_label,
+                "output_directory": db_path.parent,
+                "trades_csv": cfg.trades_csv,
+                "config_snapshot": db_path.parent / f"{effective_run_label}_effective_config.json",
+                "argv": list(argv) if argv is not None else None}
+    print(effective_config_report(cfg, run_info))
+    if args.config_only:
+        # Parse+validate+report only: no MT5 connection, no file processing.
+        return 0
+
     trend_delay_minutes = trend_swing_length * 5
     entry_delay_minutes = entry_pivot_right * 5
     print(f"M5 trend swing length: {trend_swing_length}")
@@ -266,6 +280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"M5 entry pivot: left={entry_pivot_left} right={entry_pivot_right}")
     print(f"M5 entry pivot confirmation delay: {entry_delay_minutes} minutes")
     print(f"database: {db_path}")
+    write_config_snapshots(db_path.parent, effective_run_label, cfg, run_info)
 
     try:
         if args.backtest:

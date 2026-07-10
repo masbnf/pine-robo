@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۹ — Sweep and Reclaim | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۹ از ۲۰</div>
+    <h1>Sweep and Reclaim</h1>
+    <p class="chapter-sub">حالت جایگزین ورود: به‌جای منتظر رسیدن قیمت به لبهٔ Order Block، منتظر یک شکار نقدینگی و بازپس‌گیری آن می‌مانیم.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#concept">مفهوم Sweep و Reclaim</a></li>
+      <li><a href="#code">کد: _sweep_reclaim_window</a></li>
+      <li><a href="#paths">دو مسیر تأیید: کندلی در برابر تیکی</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: Sweep and Reclaim</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    تا اینجا فرض کرده بودیم سفارش با رسیدن قیمت به لبهٔ Order Block پر می‌شود (حالت
+    <code>"limit"</code>). این فصل حالت دوم و جایگزین <code>cfg.entry_mode</code> را باز می‌کند:
+    <code>"sweep_reclaim"</code> — که یک تأیید اضافه (شکار نقدینگی و بازگشت آن) قبل از پر شدن
+    سفارش می‌خواهد.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/paper.py</code> (متدهای <code>_sweep_reclaim_window</code>، <code>_try_sweep_reclaim</code>، بخش sweep_reclaim داخل <code>process_signal_candle</code>/<code>process_tick</code>)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۸، ۴</dd>
+  </div>
+
+  <h2 id="concept">مفهوم Sweep و Reclaim</h2>
+  <p>
+    <strong>Sweep (شکار):</strong> قیمت لحظه‌ای از لبهٔ ورودیِ Order Block (<code>ob.entry</code>،
+    <strong>نه</strong> لبهٔ Stop) عبور می‌کند — انگار نقدینگیِ آن سطح را «جارو» کرده.
+  </p>
+  <p>
+    <strong>Reclaim (بازپس‌گیری):</strong> در همان کندل یا در یک پنجرهٔ محدود از کندل‌های بعدی
+    (<code>sweep_reclaim_max_bars</code>)، قیمت دوباره به داخل ناحیهٔ OB برمی‌گردد و آنجا بسته می‌شود.
+  </p>
+  <p>
+    فقط وقتی هر دو اتفاق بیفتند، سفارش «تأیید» می‌شود و اجازهٔ پر شدن پیدا می‌کند. منطق این حالت:
+    یک نفوذ کوتاه و بازگشت سریع، نشانهٔ قوی‌تری از یک ورودی واقعی معامله‌گران بزرگ است تا یک لمس
+    ساده و بی‌بازگشت.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    Sweep همیشه نسبت به لبهٔ <strong>ورود</strong> OB سنجیده می‌شود، هرگز نسبت به لبهٔ Stop — کامنت
+    صریح در کد دلیلش را توضیح می‌دهد: عبور از لبهٔ Stop دقیقاً همان شرط ابطال OB در موتور ساختار
+    است (فصل ۸)؛ اگر Sweep روی Stop تعریف می‌شد، خودِ OB قبل از رسیدن به مرحلهٔ Reclaim باطل شده بود.
+  </div>
+
+  <h2 id="code">کد: _sweep_reclaim_window (خلاصه‌شده)</h2>
+  <div class="code-path">pine_ob_bot/paper.py — PaperBroker._sweep_reclaim_window</div>
+  <pre><code class="language-python">def _sweep_reclaim_window(self, order, candle, bar_index):
+    entry = order.entry
+    swept_now = (candle.low < entry) if order.direction == "bull" else (candle.high > entry)
+    reclaimed_now = (candle.close >= entry) if order.direction == "bull" else (candle.close <= entry)
+
+    if self.cfg.sweep_reclaim_max_bars == 1:
+        return (swept_now and reclaimed_now), 0        # قانون اصلی: همان کندل
+
+    # حالت آزمایشی: پنجرهٔ چندکندلی
+    state = self._sr_windows.get(order.id)
+    if swept_now and (state is None or deeper_sweep(candle, state)):
+        self._sr_windows[order.id] = new_window(bar_index)
+        state = self._sr_windows[order.id]
+    if state and reclaimed_now:
+        lag = bar_index - state.start_bar
+        return True, lag
+    if state and window_expired(state, bar_index, self.cfg.sweep_reclaim_max_bars):
+        del self._sr_windows[order.id]
+        self.stats["sweep_reclaim_window_expired"] += 1
+    return False, 0</code></pre>
+  <p>
+    خط به خط: با <code>sweep_reclaim_max_bars == 1</code> (مقدار پیش‌فرض)، رفتار دقیقاً «قانون
+    همان‌کندل» اصلی است — Sweep و Reclaim باید در یک کندل واحد اتفاق بیفتند. برای مقدار بزرگ‌تر
+    (ویژگی <strong>آزمایشی</strong>)، یک پنجرهٔ چندکندلی باز می‌شود: اولین Sweep پنجره را باز
+    می‌کند، هر کندلی داخل پنجره که به داخل OB برگردد آن را تأیید می‌کند، و یک Sweep عمیق‌تر پنجره
+    را ریست می‌کند.
+  </p>
+  <div class="callout experimental">
+    <span class="callout-tag">قابلیت آزمایشی</span>
+    <code>sweep_reclaim_max_bars &gt; 1</code> فقط پشت پرچم صریح <code>--sweep-reclaim-max-bars</code>
+    فعال می‌شود. طبق <code>docs/ENTRY_FUNNEL_FINDINGS.md</code> (سند کمکی پروژه)، برای XAUUSD/M5
+    این حالت در اولین مقایسهٔ تاریخی بی‌اثر ثبت شده — یعنی نتیجهٔ عملی قابل توجهی نسبت به قانون
+    همان‌کندل نداشته است.
+  </div>
+
+  <h2 id="paths">دو مسیر تأیید: کندلی در برابر تیکی</h2>
+  <p>
+    تشخیص Sweep/Reclaim از خودِ <strong>پر شدن</strong> سفارش جدا نگه داشته شده:
+  </p>
+  <ul>
+    <li><strong>زنده:</strong> <code>process_signal_candle</code> روی هر کندل بسته، تأیید را بررسی می‌کند؛ در صورت تأیید فقط <code>meta["sweep_reclaim_confirmed"] = True</code> ست می‌شود و بافر ATR به Stop اضافه می‌شود — پر شدن واقعی همچنان به تیک بعدی موکول است (<code>process_tick</code>).</li>
+    <li><strong>بازپخش کندلی (بک‌تست):</strong> <code>_try_sweep_reclaim</code> در همان کندل هم تأیید و هم پر شدن را انجام می‌دهد؛ قیمت پر شدن = <code>close + spread</code> برای خرید، <code>close</code> برای فروش (چون داده OHLC بر پایهٔ Bid است).</li>
+  </ul>
+
+  <h2 id="lab">آزمایشگاه تعاملی: Sweep and Reclaim</h2>
+  <div class="lab"><div id="lab-sweep-reclaim"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/paper.py</code> → متدهای
+    <code class="small">_sweep_reclaim_window</code> و <code class="small">_try_sweep_reclaim</code>.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>پنجرهٔ وضعیت با انقضا (Windowed State with Expiry):</strong> نگه‌داشتن یک دیکشنری از
+    «پنجره‌های باز» به‌ازای هر سفارش، با شرط انقضا، الگویی رایج در سیستم‌های رویدادمحور است — شبیه
+    یک session با timeout.
+  </p>
+  <p>
+    <strong>پرچم آزمایشی پشت CLI:</strong> نگه‌داشتن رفتار پیش‌فرض ساده (<code>max_bars=1</code>)
+    و قرار دادن رفتار پیچیده‌تر پشت یک پرچم صریح، یک الگوی خوب برای معرفی تدریجی قابلیت‌های جدید
+    بدون ریسک کردن رفتار پیش‌فرض تولیدی است.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>سنجیدن Sweep نسبت به لبهٔ Stop به‌جای لبهٔ Entry.</li>
+    <li>انتظار پر شدن فوری سفارش بلافاصله بعد از تأیید Sweep/Reclaim در مسیر زنده — تأیید و پر شدن دو رویداد جدا هستند (کندل بسته در برابر تیک بعدی).</li>
+    <li>فعال‌کردن <code>sweep_reclaim_max_bars &gt; 1</code> بدون آگاهی از برچسب «آزمایشی» و یافتهٔ «بی‌اثر بودن» آن روی این نماد/تایم‌فریم.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط)</h4>
+    <p>در آزمایشگاه بالا، یک کندل Sweep بسازید که خیلی عمیق داخل OB نفوذ کند اما close آن هنوز
+    بیرون از ناحیه بماند. سپس یک کندل بعدی اضافه کنید که close آن به داخل ناحیه برگردد. با
+    <code>sweep_reclaim_max_bars=1</code> در برابر <code>sweep_reclaim_max_bars=2</code> نتیجه را مقایسه کنید.</p>
+    <details><summary>راهنما</summary><p class="hint">با max_bars=1، تأیید فقط اگر Sweep و Reclaim در <em>همان</em> کندل باشند رخ می‌دهد.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا Sweep نسبت به لبهٔ Entry سنجیده می‌شود، نه لبهٔ Stop؟</li>
+    <li>در مسیر زنده، تأیید Sweep/Reclaim و پر شدن واقعی سفارش چرا دو مرحلهٔ جدا هستند؟</li>
+    <li>قیمت پر شدن در بازپخش کندلی برای یک سفارش خرید چگونه محاسبه می‌شود و چرا؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    Sweep and Reclaim یک لایهٔ تأیید اضافه پیش از پر شدن سفارش است: قیمت باید ابتدا از لبهٔ ورودی
+    OB عبور کند (Sweep) و سپس در همان کندل (یا در حالت آزمایشی، در یک پنجرهٔ محدود) به داخل ناحیه
+    بازگردد (Reclaim). با <code>sweep_reclaim_max_bars=1</code> این دقیقاً قانون همان‌کندل اصلی است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="08_order_blocks_bos_choch.html"><span class="dir">→ فصل قبل</span>Order Block و BOS/CHoCH</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="10_entry_logic.html"><span class="dir">فصل بعد ←</span>قیف تصمیم‌گیری ورود</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-sweep-reclaim",
+    experimentId: "sweep_and_reclaim",
+    title: "بررسی وقوع Sweep و Reclaim",
+    goal: "با تنظیم کندل Sweep و بافر ATR، ببینید آیا یک سفارش تأیید می‌شود، Stop نهایی چه می‌شود و قیمت پر شدن کجاست.",
+    sourceRef: "فایل: pine_ob_bot/paper.py — متدها: _sweep_reclaim_window, _try_sweep_reclaim",
+    fields: [
+      { name: "direction", label: "جهت سفارش", type: "select", default: "bull",
+        options: [ { value: "bull", label: "خرید (bull)" }, { value: "bear", label: "فروش (bear)" } ] },
+      { name: "entry", label: "قیمت Entry (لبهٔ OB)", type: "float", default: 1950.00, min: 0, max: 100000, step: 0.01 },
+      { name: "atr", label: "ATR فعلی", type: "float", default: 2.0, min: 0.01, max: 100, step: 0.01 },
+      { name: "atr_buffer", label: "ضریب بافر ATR", type: "float", default: 0.20, min: 0, max: 2, step: 0.01,
+        help: "پارامتر: sweep_reclaim_atr_buffer" },
+      { name: "sweep_low", label: "Low کندل Sweep", type: "float", default: 1948.50, min: 0, max: 100000, step: 0.01 },
+      { name: "sweep_close", label: "Close کندل Sweep", type: "float", default: 1951.00, min: 0, max: 100000, step: 0.01 },
+      { name: "max_bars", label: "حداکثر کندل مجاز برای Reclaim", type: "int", default: 1, min: 1, max: 5, step: 1,
+        help: "پارامتر: sweep_reclaim_max_bars (۱ = قانون همان‌کندل، بیشتر = آزمایشی)" }
+    ]
+  });
+</script>
+</body>
+</html>

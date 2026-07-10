@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۲۰ — واژه‌نامه | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۲۰ از ۲۰ — فصل پایانی</div>
+    <h1>واژه‌نامه</h1>
+    <p class="chapter-sub">واژه‌نامهٔ فارسی–انگلیسیِ اصطلاحات معاملاتی (SMC) و برنامه‌نویسی به‌کاررفته در این ژورنال، با ارجاع به فصل مرتبط.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#smc">اصطلاحات معاملاتی (SMC)</a></li>
+      <li><a href="#programming">اصطلاحات برنامه‌نویسی</a></li>
+      <li><a href="#project">اصطلاحات خاص این پروژه</a></li>
+    </ol>
+  </details>
+
+  <h2 id="smc">اصطلاحات معاملاتی (SMC)</h2>
+  <table>
+    <thead><tr><th>فارسی</th><th>انگلیسی</th><th>توضیح کوتاه</th><th>فصل</th></tr></thead>
+    <tbody>
+      <tr><td>روند</td><td>Trend</td><td>جهت غالب بازار روی M5 (صعودی/نزولی/خنثی)، از موتور ساختار</td><td>۶</td></tr>
+      <tr><td>نوسان ساختاری / Swing</td><td>Swing High/Low</td><td>کندلی که سقف/کفش از همسایه‌های اطرافش فراتر است</td><td>۶</td></tr>
+      <tr><td>شکست ساختار</td><td>Structure Break</td><td>عبور close از یک سطح Swing تأییدشده</td><td>۶</td></tr>
+      <tr><td>ادامهٔ ساختار</td><td>BOS (Break of Structure)</td><td>شکست هم‌جهت با روند فعلی</td><td>۶، ۸</td></tr>
+      <tr><td>تغییر کاراکتر</td><td>CHoCH (Change of Character)</td><td>شکست مخالفِ روند فعلی</td><td>۶، ۸</td></tr>
+      <tr><td>CHoCH قوی/ضعیف</td><td>Strong/Weak CHoCH</td><td>تمایز پذیرشی بر اساس رتبهٔ درصدی قدرت displacement (نه فیلدی روی خودِ رویداد)</td><td>۸</td></tr>
+      <tr><td>پیوت ورود</td><td>Entry Pivot</td><td>پیوت کلاسیک محلی، کاملاً مستقل از Trend، فقط برای زمان‌بندی ورود</td><td>۷</td></tr>
+      <tr><td>تازگی</td><td>Freshness</td><td>آیا سن یک Entry Pivot تأییدشده کمتر از سقف مجاز است</td><td>۷</td></tr>
+      <tr><td>اوردر بلاک</td><td>Order Block</td><td>ناحیهٔ قیمتیِ کندل مخالفِ آخرین، درست پیش از شکست ضربه‌ای</td><td>۸</td></tr>
+      <tr><td>ابطال</td><td>Invalidation</td><td>باطل‌شدن یک Order Block با عبور قیمت از لبهٔ Stop آن</td><td>۸</td></tr>
+      <tr><td>شکار نقدینگی</td><td>Sweep</td><td>عبور لحظه‌ای قیمت از لبهٔ ورودی یک ناحیه</td><td>۹</td></tr>
+      <tr><td>بازپس‌گیری</td><td>Reclaim</td><td>بازگشت و بسته‌شدن قیمت داخل ناحیه، پس از یک Sweep</td><td>۹</td></tr>
+      <tr><td>سفارش معلق</td><td>Pending Order</td><td>سفارش هنوز پرنشده در انتظار رسیدن قیمت یا تأیید</td><td>۱۳</td></tr>
+      <tr><td>پر شدن</td><td>Fill</td><td>لحظه‌ای که یک سفارش معلق به یک پوزیشن باز تبدیل می‌شود</td><td>۱۰، ۱۳</td></tr>
+      <tr><td>حد ضرر</td><td>Stop Loss (SL)</td><td>سطح خروج زیان، از لبهٔ ابطال Order Block</td><td>۸، ۱۲</td></tr>
+      <tr><td>حد سود</td><td>Take Profit (TP)</td><td>سطح خروج سود، بر اساس RR ثابت یا نزدیک‌ترین نقدینگی</td><td>۱۲</td></tr>
+      <tr><td>اندازه‌گیری ریسک</td><td>Risk Sizing</td><td>محاسبهٔ حجم معامله بر اساس درصد ریسک و فاصلهٔ Stop</td><td>۱۱</td></tr>
+      <tr><td>سر‌به‌سر</td><td>Breakeven</td><td>انتقال یک‌بارهٔ Stop به Entry پس از رسیدن سود شناور به یک آستانهٔ R</td><td>۱۲</td></tr>
+      <tr><td>بک‌تست</td><td>Backtest</td><td>اجرای منطق روی دادهٔ تاریخی (کندلی یا تیکی)</td><td>۱۵</td></tr>
+      <tr><td>معاملهٔ کاغذی</td><td>Paper Trading</td><td>شبیه‌سازی کامل بدون ارسال هیچ سفارش واقعی</td><td>۱، ۱۳</td></tr>
+      <tr><td>اجرای دمو</td><td>Demo Execution</td><td>آینهٔ اختیاری تصمیم Paper روی یک حساب Demo واقعی MT5</td><td>۲، ۱۳</td></tr>
+      <tr><td>حداکثر سود شناور</td><td>MFE (Max Favorable Excursion)</td><td>بیشترین سود شناور یک پوزیشن پیش از بسته‌شدن</td><td>۱۲</td></tr>
+      <tr><td>حداکثر زیان شناور</td><td>MAE (Max Adverse Excursion)</td><td>بیشترین زیان شناور یک پوزیشن پیش از بسته‌شدن</td><td>۱۲</td></tr>
+      <tr><td>واحد R</td><td>R Multiple</td><td>PnL یک معامله تقسیم بر پول ریسک‌شدهٔ آن — واحد استاندارد مقایسهٔ معاملات</td><td>۱۱، ۱۲</td></tr>
+      <tr><td>پاداش به ریسک</td><td>RR (Reward:Risk)</td><td>نسبت فاصلهٔ TP به فاصلهٔ SL</td><td>۱۲</td></tr>
+      <tr><td>استخر نقدینگی</td><td>Liquidity Pool (BSL/SSL)</td><td>سطح بالای/پایین یک Swing که احتمال جارو شدنش هست</td><td>۲</td></tr>
+      <tr><td>هم‌ترازی چندتایم‌فریمی</td><td>MTF Alignment</td><td>هم‌جهت بودن روند M5 با کانتکست M15</td><td>۲</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="programming">اصطلاحات برنامه‌نویسی</h2>
+  <table>
+    <thead><tr><th>فارسی</th><th>انگلیسی</th><th>توضیح کوتاه</th><th>فصل</th></tr></thead>
+    <tbody>
+      <tr><td>دیتاکلاس</td><td>Dataclass</td><td>دکوریتور پایتون برای ساخت خودکار کلاس‌های داده‌محور</td><td>۴، ۵</td></tr>
+      <tr><td>راهنمای نوع</td><td>Type Hint</td><td>مستندسازی نوع داده در امضای متغیر/تابع</td><td>۵</td></tr>
+      <tr><td>مقدار محدود</td><td>Literal Type</td><td>نوعی که فقط مقادیر مشخص و از پیش‌تعریف‌شده را مجاز می‌داند</td><td>۵</td></tr>
+      <tr><td>ویژگی محاسبه‌شده</td><td>Computed Property</td><td>متد با <code>@property</code> که مقداری را از فیلدهای دیگر حساب می‌کند، بدون ذخیرهٔ جدا</td><td>۵</td></tr>
+      <tr><td>فضای ذخیرهٔ ثابت</td><td>__slots__</td><td>جایگزین <code>__dict__</code> پویا برای صرفه‌جویی حافظه در دیتاکلاس‌ها</td><td>۴</td></tr>
+      <tr><td>متغیر مقداردهی اولیه</td><td>InitVar</td><td>فیلد dataclass که فقط در <code>__init__</code>/<code>__post_init__</code> استفاده می‌شود، روی نمونه ذخیره نمی‌شود</td><td>۴</td></tr>
+      <tr><td>شرط خروج زودهنگام</td><td>Guard Clause</td><td>الگوی <code>if ...: return</code> پشت‌سرهم به‌جای تودرتو کردن شرط‌ها</td><td>۱۰</td></tr>
+      <tr><td>ماشین حالت</td><td>State Machine</td><td>مدلی که یک شیء را در هر لحظه در یکی از چند «حالت» مشخص نگه می‌دارد و گذارها را کنترل می‌کند</td><td>۸، ۱۳</td></tr>
+      <tr><td>ماشین حالت ضمنی</td><td>Implicit State Machine</td><td>state machine پیاده‌سازی‌شده با یک متغیر ساده (int/str) به‌جای کلاس/Enum رسمی</td><td>۶</td></tr>
+      <tr><td>معماری لایه‌ای</td><td>Layered Architecture</td><td>سازمان‌دهی کد در لایه‌های مستقل با جهت وابستگی مشخص</td><td>۲</td></tr>
+      <tr><td>جداسازی مسئولیت‌ها</td><td>Separation of Concerns</td><td>هر ماژول فقط مسئول یک نگرانی مشخص (تشخیص، تصمیم، اجرا...)</td><td>۲</td></tr>
+      <tr><td>پردازش رویدادمحور</td><td>Event-Driven Processing</td><td>واکنش کد به رویدادهای گسسته (کندل بسته، تیک) به‌جای اجرای پیوسته</td><td>۳، ۱۴</td></tr>
+      <tr><td>حلقهٔ نظرسنجی</td><td>Polling Loop</td><td>بررسی دوره‌ای وضعیت با فاصلهٔ زمانی ثابت</td><td>۳</td></tr>
+      <tr><td>عدم نگاه‌به‌آینده</td><td>No Look-Ahead</td><td>اصل طراحی: هیچ محاسبه‌ای نباید از داده‌ای که در آن لحظه هنوز وجود نداشته استفاده کند</td><td>۷، ۸، ۱۵</td></tr>
+      <tr><td>رتبهٔ درصدی سببی</td><td>Causal Percentile Rank</td><td>رتبهٔ یک مقدار نسبت به تاریخچهٔ <em>پیش از</em> خودش، بدون نشت اطلاعات آینده</td><td>۸</td></tr>
+      <tr><td>صف کراندار</td><td>Bounded Queue</td><td>صفی با ظرفیت محدود، معمولاً با سیاست dropping در پرشدگی</td><td>۱۶</td></tr>
+      <tr><td>خاصیت یکسان‌ماندن با تکرار</td><td>Idempotency</td><td>اجرای دوبارهٔ یک عملیات، نتیجهٔ یکسان/بدون‌تکرار می‌دهد</td><td>۱۶</td></tr>
+      <tr><td>شیء جعلی</td><td>Fake Object</td><td>پیاده‌سازی سادهٔ سازگار-با-رابط برای تست، بدون وابستگی واقعی خارجی</td><td>۱۷</td></tr>
+      <tr><td>آرایه/اثبات/ادعا</td><td>Arrange/Act/Assert</td><td>الگوی سه‌بخشیِ نوشتن یک تست خوانا</td><td>۱۷</td></tr>
+      <tr><td>دورهٔ گرم‌شدن</td><td>Warm-up Period</td><td>تعداد کندل اولیه‌ای که اندیکاتورهای پنجره‌ای برای معنادار شدن نیاز دارند</td><td>۱۵</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="project">اصطلاحات خاص این پروژه</h2>
+  <table>
+    <thead><tr><th>اصطلاح</th><th>توضیح</th><th>فصل</th></tr></thead>
+    <tbody>
+      <tr><td><code>lifecycle_state</code></td><td>برچسب توصیفی چرخهٔ عمر یک <code>PendingOrder</code> — همیشه با <code>active</code> بررسی شود، نه به‌تنهایی</td><td>۱۳</td></tr>
+      <tr><td><code>entry_lifecycle_enabled</code></td><td>پرچم قابلیت آزمایشیِ formed→accepted→armed، خاموش پیش‌فرض</td><td>۱۳</td></tr>
+      <tr><td><code>revival_shadow_audit</code></td><td>ممیزی مشاهده‌گر و آزمایشی که هرگز روی تصمیم واقعی اثر نمی‌گذارد</td><td>۱۰</td></tr>
+      <tr><td><code>sweep_reclaim_max_bars</code></td><td>پنجرهٔ آزمایشی چندکندلی Sweep/Reclaim؛ با مقدار ۱ دقیقاً قانون همان‌کندل اصلی است</td><td>۹</td></tr>
+      <tr><td>ربات دیگر ریشهٔ ریپو</td><td>یک پروژهٔ SMC/MTF کاملاً مجزا (<code>config/settings.py</code>, <code>backtest/</code>, <code>data/loader.py</code>) که موضوع این ژورنال نیست</td><td>۱</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout note">
+    <span class="callout-tag">پایان ژورنال</span>
+    این آخرین فصل شماره‌گذاری‌شدهٔ ژورنال است. برای دیدن فهرست کامل بررسی/عدم‌بررسی فایل‌ها، بدهی‌های
+    فنی جمع‌بندی‌شده، و پیشنهاد ترتیب یادگیری بعدی، به <code>documentation_report.html</code>
+    (کنار همین پوشه) مراجعه کنید.
+  </div>
+
+  <div class="chapter-nav">
+    <a href="19_exercises.html"><span class="dir">→ فصل قبل</span>تمرین‌های تجمیعی</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <span></span>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۴ — چرخهٔ کامل یک معامله | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۴ از ۲۰</div>
+    <h1>چرخهٔ کامل یک معامله</h1>
+    <p class="chapter-sub">از خام‌ترین ورودی (یک کندل) تا یک رکورد <code>Trade</code> بسته‌شده — قدم‌به‌قدم، با ارجاع دقیق به کد، مسیر زنده.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#step1">۱) دریافت کندل</a></li>
+      <li><a href="#step2">۲) پردازش کندل بسته (۱۲ زیرمرحله)</a></li>
+      <li><a href="#step3">۳) پردازش تیک: پر شدن و بسته‌شدن</a></li>
+      <li><a href="#step4">۴) گزارش‌گیری async</a></li>
+      <li><a href="#diagram">نمودار کامل مسیر</a></li>
+      <li><a href="#inference">نکتهٔ Inference: چه چیزی تضمین‌شده و چه چیزی نیست</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل‌های ۶ تا ۱۳ هرکدام یک تکه از پازل را جدا توضیح دادند. این فصل تمام آن تکه‌ها را در ترتیب
+    <strong>دقیق و واقعیِ اجرا</strong> (نه ترتیب فصل‌ها) کنار هم می‌گذارد — دقیقاً همان‌طور که در
+    <code>PaperApp</code> (مسیر زنده، کامل‌ترین ارکستراسیون) رخ می‌دهد. بک‌تست کندلی/تیکی همین
+    ترتیب را به‌صورت قطعی (نه وابسته به ساعت دیواری) بازتولید می‌کنند.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>pine_ob_bot/app.py</code> (<code>PaperApp.on_closed_candle</code>، <code>on_tick</code>)، به‌علاوه هر فایلی که در فصل‌های ۶ تا ۱۳ دیدیم</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۳، ۶ تا ۱۳</dd>
+  </div>
+
+  <h2 id="step1">۱) دریافت کندل</h2>
+  <p>
+    <code>mt5_feed.py</code> کندل‌های بستهٔ M5 را برمی‌گرداند. <code>PaperApp.run</code> هر
+    <code>candle_poll_seconds</code> بررسی می‌کند، و برای هر کندل تازه، <code>on_closed_candle</code>
+    را صدا می‌زند؛ سپس در همان دور حلقه، <code>on_tick()</code> هم صدا زده می‌شود — کچ‌آپ کندل همیشه
+    <strong>پیش از</strong> ارزیابی تیک جاری تمام می‌شود (تضمین صریح کد).
+  </p>
+
+  <h2 id="step2">۲) پردازش هر کندل بسته (به ترتیب دقیق کد)</h2>
+  <ol>
+    <li><code>MarketRecorder.record_candle</code> — ضبط خام (فصل ۱۶).</li>
+    <li><code>PaperBroker.process_signal_candle</code> — پیشروی <code>market_index</code>، ماشین‌حالت اختیاری Lifecycle، و (در حالت Sweep &amp; Reclaim) بررسی تأیید سفارش‌های معلق (فصل ۹، ۱۳).</li>
+    <li>تخلیهٔ رویدادهای رد سایزینگ از هر فراخوانی قبلیِ <code>_open</code> در مسیر تیک.</li>
+    <li>به‌روزرسانی کانتکست M15/نقدینگی — مشاهده‌گر، غیرمسدودکننده (فصل ۲).</li>
+    <li><strong>تشخیص ساختار:</strong> <code>PineSwingOBEngine.process(candle)</code> — TR/ATR، فیلتر نوسان، <code>_update_swing</code>، تشخیص شکست (BOS/CHoCH)، <code>_make_ob</code>، بررسی ابطال. خروجی: <code>(breaks, formed_obs, invalidated_ids)</code> (فصل‌های ۶، ۸).</li>
+    <li><code>ChochContext.process(breaks)</code> — ثبت رویداد CHoCH در صورت وجود (فصل ۸).</li>
+    <li><strong>به‌روزرسانی Trend:</strong> <code>PaperBroker.update_m5_trend(...)</code> — لغو هر سفارش معلق اکنون مخالفِ Trend جدید. این قدم صریحاً باید پیش از پذیرش هر Order Block <em>تازهٔ همین کندل</em> اجرا شود (فصل ۶، ۱۳).</li>
+    <li><strong>Entry Pivot:</strong> <code>ClassicEntryPivotDetector.process(candle)</code> — هر Pivot تازه‌تأییدشده به <code>PaperBroker.update_entry_pivot(pivot)</code> داده می‌شود (فصل ۷).</li>
+    <li><strong>پذیرش Order Block:</strong> برای هر OB تازه‌فرم‌شده، متادیتای Displacement/M15/نقدینگی/CHoCH ساخته و ادغام می‌شود؛ سپس <code>PaperBroker.add_ob(ob, extra_meta)</code> کل قیف هفت‌مرحله‌ای فصل ۱۰ را اجرا می‌کند.</li>
+    <li>OBهای باطل‌شده → <code>PaperBroker.cancel_ob(ob_id)</code> (فصل ۸، ۱۳).</li>
+    <li><code>PaperBroker.set_market_context(...)</code> — اسنپ‌شاتی برای مصرف بعدی در لحظهٔ پر شدن.</li>
+    <li>تخلیهٔ رویدادهای Trend؛ <code>_save()</code> (ماندگاری، فصل ۱۶).</li>
+  </ol>
+
+  <h2 id="step3">۳) پردازش هر تیک: پر شدن و بسته‌شدن</h2>
+  <ol>
+    <li>بررسی تازگی/دوباره‌کاری (<code>max_live_tick_age_seconds</code>).</li>
+    <li><code>MarketRecorder.record_tick</code>.</li>
+    <li><code>PaperBroker.process_tick(tick)</code>:
+      <ul>
+        <li>اگر پوزیشنی باز است: ردیابی Excursion، اعمال Breakeven (فصل ۱۲)، بررسی SL/TP، بستن با <code>_close</code> در صورت برخورد — <strong>هیچ سفارش جدیدی در همین فراخوانی ارزیابی نمی‌شود</strong> (فصل ۱۳، «رفتار نیازمند بررسی»).</li>
+        <li>در غیر این صورت: برای هر سفارش معلقِ <code>"armed"</code> (قدیمی‌ترین اول)، بسته به حالت (<code>limit</code> یا <code>sweep_reclaim</code>، فصل ۹)، بررسی پر شدن و در صورت تأیید فراخوانی <code>_open(...)</code> (فصل ۱۰، ۱۱).</li>
+      </ul>
+    </li>
+    <li><strong>پر شدن (<code>_open</code>):</strong> حل Stop/Target → درصدک سن انتظار → حل حالت هدف → <strong>انتخاب کسر ریسک</strong> (فصل ۱۱) → <code>calculate_safe_position_size</code> → رد در صورت سایزینگ نامعتبر → <strong>بازبررسی نهایی Trend</strong> → رد در صورت ناسازگاری → در غیر این صورت: <code>lifecycle_state="filled"</code> و ساخت <code>PaperPosition</code>.</li>
+    <li>در صورت حالت Demo فعال و پر شدن از تیک زنده: <code>DemoExecutor.open(...)</code>؛ در صورت شکست، <code>PaperBroker.reject_open(...)</code> کل پر شدن کاغذی را برمی‌گرداند.</li>
+    <li>هر تیک بعدی: ردیابی Excursion و <strong>Breakeven</strong> همیشه پیش از بررسی SL/TP اجرا می‌شوند — یعنی arm شدن Breakeven و برخورد SL/TP می‌توانند در یک فراخوانی واحد رخ دهند (Breakeven اول).</li>
+    <li><strong>بسته‌شدن:</strong> برخورد SL یا TP → <code>PaperBroker._close(...)</code> — محاسبهٔ PnL/R، MAE/MFE-در-R (نسبت به فاصلهٔ اصلی Stop، فصل ۱۲)، ساخت <code>Trade</code>، به‌روزرسانی equity/drawdown، حذف پوزیشن. در حالت آینهٔ Demo، <code>DemoExecutor.close(...)</code> و <code>apply_demo_exit</code> قیمت را از fill واقعی اصلاح می‌کنند.</li>
+    <li><code>StateStore.record_trade</code>/<code>record_event</code>؛ لاگ؛ <code>_save()</code>.</li>
+  </ol>
+
+  <h2 id="step4">۴) گزارش‌گیری (ناهم‌زمان، خارج از حلقهٔ معاملاتی)</h2>
+  <p>
+    <code>PaperApp._refresh_daily_report</code> → <code>_export_daily_report</code> (ساخت یک
+    اسنپ‌شات کم‌عمق از بروکر + کانتکست) → <code>ReportWorker.submit(_write_daily_reports, ...)</code>
+    → (در نخ Worker) <code>reporting.export_daily_html</code>/<code>export_daily_metrics</code>/
+    <code>export_reports</code>. در لحظهٔ خاموش‌شدن، بلوک <code>finally</code> در
+    <code>PaperApp.run</code> یک گزارش نهایی اجباری می‌سازد، Worker را می‌بندد (منتظر خالی‌شدن صف)،
+    CSVها/HTML نهایی را می‌نویسد و SQLite/فید/داشبورد را می‌بندد (فصل ۱۶).
+  </p>
+
+  <h2 id="diagram">نمودار کامل مسیر</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 940 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="نمودار چرخه کامل معامله">
+      <defs><marker id="a14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/></marker></defs>
+      <style>.b{fill:#1b2028;stroke:#2a3140;} .t{fill:#e7ebf3;font-size:11px;font-family:sans-serif;text-anchor:middle;} .e{stroke:#5aa9ff;stroke-width:1.3;fill:none;marker-end:url(#a14);} .grp{fill:#161a21;stroke:#2a3140;}</style>
+
+      <rect x="20" y="10" width="900" height="90" class="grp" rx="10"/><text x="40" y="28" class="t" text-anchor="start" fill="#9aa5b8" font-size="11">کندل بسته</text>
+      <rect x="40" y="38" width="130" height="34" class="b" rx="6"/><text x="105" y="59" class="t">Engine: Swing/BOS/CHoCH</text>
+      <rect x="185" y="38" width="110" height="34" class="b" rx="6"/><text x="240" y="59" class="t">Trend Update</text>
+      <rect x="310" y="38" width="110" height="34" class="b" rx="6"/><text x="365" y="59" class="t">Entry Pivot</text>
+      <rect x="435" y="38" width="150" height="34" class="b" rx="6" stroke="#7ee2b8"/><text x="510" y="59" class="t">add_ob (قیف پذیرش)</text>
+      <rect x="600" y="38" width="110" height="34" class="b" rx="6"/><text x="655" y="59" class="t">cancel_ob</text>
+      <rect x="725" y="38" width="170" height="34" class="b" rx="6"/><text x="810" y="59" class="t">set_market_context + save</text>
+
+      <rect x="20" y="120" width="900" height="90" class="grp" rx="10"/><text x="40" y="138" class="t" text-anchor="start" fill="#9aa5b8" font-size="11">هر تیک</text>
+      <rect x="40" y="148" width="130" height="34" class="b" rx="6"/><text x="105" y="169" class="t">بررسی پوزیشن باز؟</text>
+      <rect x="185" y="148" width="150" height="34" class="b" rx="6" stroke="#7ee2b8"/><text x="260" y="169" class="t">_open (Fill)</text>
+      <rect x="350" y="148" width="150" height="34" class="b" rx="6"/><text x="425" y="169" class="t">Excursion + Breakeven</text>
+      <rect x="515" y="148" width="130" height="34" class="b" rx="6"/><text x="580" y="169" class="t">بررسی SL/TP</text>
+      <rect x="660" y="148" width="130" height="34" class="b" rx="6" stroke="#c9406f"/><text x="725" y="169" class="t">_close (Trade)</text>
+      <rect x="805" y="148" width="90" height="34" class="b" rx="6"/><text x="850" y="169" class="t">save</text>
+
+      <rect x="20" y="230" width="900" height="80" class="grp" rx="10"/><text x="40" y="248" class="t" text-anchor="start" fill="#9aa5b8" font-size="11">Demo (اختیاری، فقط زنده)</text>
+      <rect x="40" y="258" width="200" height="34" class="b" rx="6"/><text x="140" y="279" class="t">DemoExecutor.open/close</text>
+      <rect x="260" y="258" width="220" height="34" class="b" rx="6"/><text x="370" y="279" class="t">apply_demo_entry / apply_demo_exit</text>
+
+      <rect x="20" y="330" width="900" height="80" class="grp" rx="10"/><text x="40" y="348" class="t" text-anchor="start" fill="#9aa5b8" font-size="11">گزارش‌گیری ناهم‌زمان</text>
+      <rect x="40" y="358" width="200" height="34" class="b" rx="6"/><text x="140" y="379" class="t">ReportWorker.submit</text>
+      <rect x="260" y="358" width="240" height="34" class="b" rx="6"/><text x="380" y="379" class="t">reporting.export_daily_html/...</text>
+
+      <path class="e" d="M170,55 L185,55"/><path class="e" d="M295,55 L310,55"/><path class="e" d="M420,55 L435,55"/><path class="e" d="M585,55 L600,55"/><path class="e" d="M710,55 L725,55"/>
+      <path class="e" d="M170,165 L185,165"/><path class="e" d="M335,165 L350,165"/><path class="e" d="M500,165 L515,165"/><path class="e" d="M645,165 L660,165"/><path class="e" d="M790,165 L805,165"/>
+      <path class="e" d="M470,100 L470,120"/>
+      <path class="e" d="M470,210 L470,230"/>
+      <path class="e" d="M470,310 L470,330"/>
+    </svg>
+    <div class="diagram-caption">هر ردیف یکی از سه ریتم اجراست: کندل بسته (ساختار)، تیک (اجرا)، و گزارش‌گیری ناهم‌زمان — هرکدام با سرعت خودشان اجرا می‌شوند اما یک ledger مشترک (<code>PaperBroker</code>) را می‌خوانند/می‌نویسند.</div>
+  </div>
+
+  <h2 id="inference">نکتهٔ Inference: چه چیزی تضمین‌شده و چه چیزی نیست</h2>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی — تفکیک صریح/استنباط</span>
+    <strong>تضمین‌شدهٔ کدی (صریح در کامنت/ساختار):</strong> کچ‌آپ کندل بسته همیشه پیش از ارزیابی تیک
+    جاری در همان دور حلقه تمام می‌شود؛ ترتیب ۱۲ زیرمرحلهٔ پردازش کندل بالا دقیقاً همان ترتیب کد است.<br>
+    <strong>غیرتضمین‌شده / وابسته به زمان اجرا:</strong> اینکه دقیقاً «چند تیک بین دو کندل بسته»
+    پردازش می‌شود، به ساعت دیواریِ واقعی (کندی شبکه/سیستم) بستگی دارد، نه چیزی که کد آن را ثابت
+    کند — فقط در بک‌تست کندلی/تیکی (که رویدادمحور و غیروابسته به ساعت دیواری‌اند) این ترتیب کاملاً قطعی است.
+  </div>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>پردازش رویدادمحور (Event-Driven Processing):</strong> کل سیستم حول دو نوع رویداد
+    می‌چرخد (کندل بسته، تیک) و هر رویداد یک زنجیرهٔ مشخص از واکنش‌ها را فعال می‌کند — الگویی که در
+    سیستم‌های معاملاتی، پردازش جریان داده، و رابط‌های کاربری رایج است.
+  </p>
+  <p>
+    <strong>یک ledger مشترک، چند ریتم مصرف‌کننده:</strong> <code>PaperBroker</code> یک شیء واحد
+    است اما با سه سرعت متفاوت لمس می‌شود (هر کندل، هر تیک، هر چند صد ثانیه برای گزارش) — طراحی این
+    باید حواسش به رقابت (race) بین این ریتم‌ها باشد؛ در این پروژه، تک‌رشته‌ای بودن حلقهٔ اصلی
+    (<code>PaperApp.run</code>) این نگرانی را حذف می‌کند، هرچند <code>ReportWorker</code> در نخ
+    جدا اجرا می‌شود (فصل ۱۶ جزئیات بیشتری می‌دهد).
+  </p>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (پیشرفته)</h4>
+    <p>با استفاده از آزمایش‌های فصل‌های ۶، ۷، ۸ و ۱۱ (تشخیص Trend، Entry Pivot، BOS/CHoCH،
+    Risk Sizing) به‌ترتیب، خروجی هرکدام را دستی به‌عنوان ورودی مرحلهٔ بعدی وارد کنید تا یک معاملهٔ
+    کامل و فرضی را «دستی» شبیه‌سازی کنید. کدام مرحله بیشترین ورودی از مراحل قبلی را می‌گیرد؟</p>
+    <details><summary>راهنما</summary><p class="hint">به جدول هفت‌مرحله‌ای فصل ۱۰ برگردید — <code>add_ob</code> نقطهٔ همگرایی همهٔ مراحل قبلی است.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا Entry Pivot باید بعد از به‌روزرسانی Trend پردازش شود، نه قبلش؟</li>
+    <li>چرا Breakeven همیشه پیش از بررسی SL/TP در همان فراخوانی تیک اجرا می‌شود؟</li>
+    <li>چه چیزی دربارهٔ ترتیب کندل/تیک تضمین‌شدهٔ کدی است و چه چیزی نیست؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    یک معامله از یک کندل بسته شروع می‌شود (تشخیص ساختار → Trend → Pivot → پذیرش OB)، در تیک‌های
+    بعدی پر و مدیریت می‌شود (Fill → Breakeven → SL/TP → Close)، و در پس‌زمینه گزارش می‌شود. ترتیب
+    این مراحل عمداً و صریحاً در کد ثابت شده تا اجرای زنده و بک‌تست هرگز از هم واگرا نشوند.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="13_paper_broker_pending_orders.html"><span class="dir">→ فصل قبل</span>Paper Broker و Pending Order</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="15_backtesting.html"><span class="dir">فصل بعد ←</span>بک‌تست</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

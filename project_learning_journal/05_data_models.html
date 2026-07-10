@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۵ — مدل‌های داده | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۵ از ۲۰</div>
+    <h1>مدل‌های داده</h1>
+    <p class="chapter-sub">هشت dataclass مشترک <code>models.py</code> — از یک کندل خام تا یک معاملهٔ بسته‌شده — به‌علاوه آزمایشگاه ساخت Candle.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#concepts">مفاهیم: dataclass، type hint، Literal</a></li>
+      <li><a href="#models">هشت مدل داده</a></li>
+      <li><a href="#code">نمونهٔ کد و توضیح خط‌به‌خط</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: ساخت Candle</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#design">نکات طراحی</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    هر بخش دیگر این پروژه — از موتور ساختار تا گزارش‌گیری — روی همین هشت شکل داده کار می‌کند.
+    این فصل آن‌ها را یک‌جا معرفی می‌کند تا وقتی در فصل‌های بعدی به <code>OrderBlock</code> یا
+    <code>Trade</code> برخوردید، بدانید دقیقاً چه فیلدهایی دارند.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/models.py</code> (۱۲۴ خط، کامل)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل ۲</dd>
+  </div>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی: dataclass، type hint، Literal</h2>
+  <p>
+    <strong>Type hint:</strong> نوشتن <code>open: float</code> به‌جای فقط <code>open</code>
+    مستندسازی زنده است — هم برای انسان (این فیلد عدد اعشاری است) و هم برای ابزارهایی مثل type
+    checker/IDE. پایتون خودش این را در زمان اجرا اجباری نمی‌کند، اما در این پروژه نظم زیادی به کد می‌دهد.
+  </p>
+  <p>
+    <strong><code>Literal["bull", "bear"]</code>:</strong> به‌جای اینکه جهت معامله یک رشتهٔ آزاد
+    باشد، <code>Direction = Literal["bull", "bear"]</code> فقط همین دو مقدار دقیق را مجاز می‌داند
+    — یک type checker می‌تواند typo مثل <code>"buy"</code> به‌جای <code>"bull"</code> را پیش از
+    اجرا پیدا کند.
+  </p>
+  <p>
+    <strong>Computed property روی dataclass:</strong> بعضی مدل‌ها (مثل <code>OrderBlock</code>)
+    علاوه بر فیلدهای خام، متدهایی با <code>@property</code> دارند که از همان فیلدها مقدار جدیدی
+    محاسبه می‌کنند — بدون اینکه آن مقدار را دوباره ذخیره کنند (پرهیز از دادهٔ تکراری/ناسازگار).
+  </p>
+
+  <h2 id="models">هشت مدل داده</h2>
+
+  <h3>Candle</h3>
+  <p>فیلدها: <code>time: str</code> (ISO-8601)، <code>open</code>، <code>high</code>، <code>low</code>، <code>close: float</code>. یک کندل بستهٔ M5 (یا M15 تجمیع‌شده).</p>
+
+  <h3>Tick</h3>
+  <p>فیلدها: <code>time: str</code>، <code>bid: float</code>، <code>ask: float</code>. یک نقل‌قول زنده/بازپخش‌شده.</p>
+
+  <h3>Pivot</h3>
+  <p>فیلدها: <code>level: float</code>، <code>bar_index: int</code>، <code>time: str</code>، <code>crossed: bool = False</code>. یک Swing High/Low تأییدشدهٔ Trend داخل <code>PineSwingOBEngine</code>؛ <code>crossed</code> نشان می‌دهد آیا قیمت از قبل از آن عبور کرده یا نه (دقیقاً یک‌بار برای یک BOS/CHoCH مصرف می‌شود).</p>
+
+  <h3>StructureBreak</h3>
+  <p>فیلدها: <code>direction: Direction</code>، <code>kind: Literal["BOS","CHoCH"]</code>، <code>pivot_level</code>، <code>bar_index</code>، <code>time</code>. یک رویداد شکست ساختار که <code>PineSwingOBEngine.process</code> تولید می‌کند.</p>
+
+  <h3>OrderBlock</h3>
+  <p>فیلدها: <code>id</code>، <code>direction</code>، <code>high</code>، <code>low</code>، <code>source_index</code>، <code>source_time</code>، <code>formed_index</code>، <code>formed_time</code>، <code>active: bool = True</code>، <code>break_kind: str = "unknown"</code>، <code>atr_at_formation: float | None = None</code>.</p>
+  <p>دو property محاسبه‌شده: <code>entry</code> (اگر bull باشد <code>high</code>، وگرنه <code>low</code> — لبهٔ قابل‌معامله) و <code>stop</code> (برعکس <code>entry</code> — لبهٔ ابطال).</p>
+
+  <h3>PendingOrder</h3>
+  <p>فیلدها: <code>id</code>، <code>ob_id</code>، <code>direction</code>، <code>entry</code>، <code>stop</code>، <code>target: float</code>، <code>created_index</code>، <code>created_time</code>، <code>active: bool = True</code>، <code>meta: dict</code> (پیش‌فرض کارخانه‌ای)، <code>lifecycle_state: str = "formed"</code>، <code>accepted_index</code>، <code>armed_index: int | None</code>. سفارش محدودِ هنوز پر‌نشده — چرخهٔ کامل عمرش در فصل ۱۳.</p>
+
+  <h3>PaperPosition</h3>
+  <p>فیلدها: <code>id</code>، <code>order_id</code>، <code>direction</code>، <code>entry</code>، <code>stop</code>، <code>target</code>، <code>volume</code>، <code>risk_money</code>، <code>opened_time</code>، <code>opened_index</code>، <code>max_adverse: float = 0.0</code>، <code>max_favorable: float = 0.0</code>، <code>meta: dict</code>. یک معاملهٔ کاغذیِ باز؛ <code>max_adverse</code>/<code>max_favorable</code> جابه‌جایی خام قیمت هستند (هنوز به R تبدیل نشده‌اند — این تبدیل هنگام بسته‌شدن رخ می‌دهد).</p>
+
+  <h3>Trade</h3>
+  <p>فیلدها: <code>id</code>، <code>direction</code>، <code>entry</code>، <code>stop</code>، <code>target</code>، <code>exit_price</code>، <code>volume</code>، <code>risk_money</code>، <code>pnl</code>، <code>r_multiple</code>، <code>opened_time</code>، <code>closed_time</code>، <code>result: Literal["win","loss"]</code>، <code>order_id</code>، <code>ob_id</code>، <code>opened_index</code>، <code>closed_index</code>، <code>max_adverse_r</code>، <code>max_favorable_r</code>، <code>meta</code>. رکورد یک معاملهٔ بسته‌شده — واحد خروجی همهٔ گزارش‌ها.</p>
+
+  <h3><code>to_dict(value) -> dict</code></h3>
+  <p>پوششی نازک روی <code>dataclasses.asdict</code>. اغلب ماژول‌ها مستقیم خودِ <code>asdict</code> را صدا می‌زنند، نه این تابع کمکی.</p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    هیچ‌کدام از این کلاس‌ها خودشان فیلدهایشان را اعتبارسنجی نمی‌کنند (مثلاً بررسی <code>high &gt;= low</code>
+    داخل خودِ <code>OrderBlock</code> وجود ندارد) — این کار در محل فراخوانی انجام می‌شود، مثلاً
+    <code>PaperBroker.add_ob</code> که <code>ob.high &lt;= ob.low</code> را قبل از پذیرش بررسی می‌کند.
+  </div>
+
+  <h2 id="code">نمونهٔ کد و توضیح خط‌به‌خط: OrderBlock</h2>
+  <div class="code-path">pine_ob_bot/models.py — OrderBlock (خلاصه‌شده)</div>
+  <pre><code class="language-python">@dataclass(slots=True)
+class OrderBlock:
+    id: str
+    direction: Direction
+    high: float
+    low: float
+    source_index: int
+    source_time: str
+    formed_index: int
+    formed_time: str
+    active: bool = True
+    break_kind: str = "unknown"
+    atr_at_formation: float | None = None
+
+    @property
+    def entry(self) -> float:
+        return self.high if self.direction == "bull" else self.low
+
+    @property
+    def stop(self) -> float:
+        return self.low if self.direction == "bull" else self.high</code></pre>
+  <p>
+    خط به خط: فیلدهای بدون مقدار پیش‌فرض (<code>id</code> تا <code>formed_time</code>) باید هنگام
+    ساخت شیء پاس داده شوند؛ فیلدهای دارای مقدار پیش‌فرض (<code>active</code> به بعد) اختیاری‌اند.
+    <code>entry</code> و <code>stop</code> هیچ فیلد ذخیره‌شده‌ای ندارند — هر بار که خوانده شوند،
+    از روی <code>direction</code>/<code>high</code>/<code>low</code> فعلی محاسبه می‌شوند. این یعنی
+    اگر <code>high</code> یا <code>low</code> بعداً تغییر کند (که در این کلاس رخ نمی‌دهد، اما اصل
+    کلی درست است)، <code>entry</code>/<code>stop</code> همیشه به‌روز می‌مانند — بدون خطر ناسازگاری
+    بین یک مقدار خام و یک مقدار مشتق‌شدهٔ کش‌شده.
+  </p>
+
+  <h2 id="lab">آزمایشگاه تعاملی: ساخت Candle</h2>
+  <div class="lab" id="lab-wrap-candle">
+    <div id="lab-candle-builder"></div>
+  </div>
+  <p class="small">
+    هدف آموزشی: دیدن اینکه چگونه چهار عدد خام (Open/High/Low/Close) به یک شیء واقعیِ
+    <code>Candle</code> پروژه تبدیل می‌شود، و مفاهیم مشتق‌شدهٔ ساده (اندازهٔ range، صعودی/نزولی
+    بودن، اعتبار منطقی OHLC) روی همان شیء چگونه محاسبه می‌شوند.<br>
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/models.py</code> → کلاس <code class="small">Candle</code>.
+    این نسخهٔ آموزشی، بعد از ساخت شیء <code>Candle</code> واقعی، فقط چند محاسبهٔ کمکی (range،
+    bullish/bearish، اعتبار OHLC) روی آن اضافه می‌کند که خودِ <code>models.py</code> ندارد — چون
+    این پروژه اعتبارسنجی OHLC را در محل مصرف انجام می‌دهد، نه داخل خودِ <code>Candle</code>.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فرض اینکه <code>OrderBlock.entry</code> یک فیلد ذخیره‌شده است — یک property محاسبه‌شده است، هر بار از نو حساب می‌شود.</li>
+    <li>ساختن <code>Candle</code> با <code>high &lt; low</code> و انتظار خطا — خودِ <code>Candle</code> هیچ بررسی‌ای نمی‌کند؛ این مسئولیت کد فراخواننده است.</li>
+    <li>گیج‌شدن بین <code>PaperPosition.max_adverse</code> (قیمت خام) و <code>Trade.max_adverse_r</code> (نرمال‌شده به R) — دو واحد اندازه‌گیری متفاوت‌اند.</li>
+  </ul>
+
+  <h2 id="design">نکات طراحی</h2>
+  <p>
+    جداسازیِ «سفارش معلق» (<code>PendingOrder</code>)، «پوزیشن باز» (<code>PaperPosition</code>) و
+    «معاملهٔ بسته» (<code>Trade</code>) به‌جای یک کلاس بزرگ با فیلدهای Optional زیاد، یک تصمیم
+    طراحی آگاهانه است: هر مرحله از عمر یک معامله دقیقاً همان فیلدهایی را دارد که در آن مرحله
+    معنا دارند، نه بیشتر.
+  </p>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (ساده)</h4>
+    <p>در آزمایشگاه بالا، مقادیری وارد کنید که <code>open</code> بیرون از بازهٔ <code>[low, high]</code> باشد. آیا خطا می‌گیرید؟ چرا این رفتار با طراحی <code>models.py</code> سازگار است؟</p>
+    <details><summary>راهنما</summary><p class="hint">به بخش «نکته» بالا دربارهٔ نبودِ اعتبارسنجی داخل خودِ <code>Candle</code>/<code>OrderBlock</code> برگردید.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li><code>Direction</code> با <code>Literal</code> چه فایده‌ای نسبت به یک <code>str</code> ساده دارد؟</li>
+    <li>فرق <code>PaperPosition</code> و <code>Trade</code> چیست و چرا یک کلاس واحد نیستند؟</li>
+    <li><code>OrderBlock.entry</code> برای یک OB با <code>direction="bear"</code> کدام فیلد را برمی‌گرداند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    هشت dataclass ساده و بدون رفتار پیچیده، ستون فقرات دادهٔ کل پروژه‌اند. اعتبارسنجی عمداً از
+    خودِ این کلاس‌ها بیرون نگه داشته شده و به محل مصرف (عمدتاً <code>PaperBroker</code>) واگذار شده است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="04_configuration.html"><span class="dir">→ فصل قبل</span>پیکربندی</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="06_trend_detection.html"><span class="dir">فصل بعد ←</span>تشخیص Trend روی M5</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-candle-builder",
+    experimentId: "candle_builder",
+    title: "ساخت یک Candle واقعی پروژه",
+    goal: "مقادیر OHLC و زمان را وارد کنید تا شیء Candle واقعی پروژه ساخته شود و ویژگی‌های مشتق‌شدهٔ آن را ببینید.",
+    sourceRef: "فایل: pine_ob_bot/models.py — کلاس: Candle",
+    fields: [
+      { name: "time",  label: "زمان (ISO-8601)", type: "text",  default: "2026-01-01T00:00:00" },
+      { name: "open",  label: "Open",  type: "float", default: 1950.00, min: 0, max: 100000, step: 0.01, help: "قیمت باز شدن کندل" },
+      { name: "high",  label: "High",  type: "float", default: 1955.00, min: 0, max: 100000, step: 0.01, help: "بالاترین قیمت کندل" },
+      { name: "low",   label: "Low",   type: "float", default: 1948.00, min: 0, max: 100000, step: 0.01, help: "پایین‌ترین قیمت کندل" },
+      { name: "close", label: "Close", type: "float", default: 1952.50, min: 0, max: 100000, step: 0.01, help: "قیمت بسته شدن کندل" }
+    ]
+  });
+</script>
+</body>
+</html>

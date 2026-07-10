@@ -91,6 +91,11 @@ def test_no_flag_run_creates_no_experimental_state(tmp_path):
     assert summary["reentry_orders_created"] == 0
     assert summary["spread_wait_started"] == 0
     assert summary["rejected_portfolio_risk_cap"] == 0
+    # M1 Entry Assist off: no engine, no bars, no M1 state of any kind.
+    assert summary["m1_bars_created"] == 0
+    assert summary["m1_setups_observed"] == 0
+    assert summary["m1_confirmations_total"] == 0
+    assert summary["m1_entry_assist"] is False
 
 
 if __name__ == "__main__":

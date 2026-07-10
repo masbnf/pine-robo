@@ -178,6 +178,38 @@ def experimental_summary(broker: PaperBroker) -> dict:
             if filled else None),
         "current_open_risk_fraction": (
             round(open_risk / broker.equity, 6) if broker.equity else None),
+        **_m1_summary(cfg, stats),
+    }
+
+
+def _m1_summary(cfg, stats: dict) -> dict:
+    """Computed M1 Entry Assist summaries (None-safe with the flag off)."""
+    m1_trades = stats.get("m1_wins", 0) + stats.get("m1_losses", 0)
+    confirmations = stats.get("m1_confirmations_total", 0)
+    early = stats.get("m1_confirmations_later_confirmed_by_m5", 0)
+    unique = stats.get("m1_confirmations_unique_vs_m5", 0)
+    classified = early + unique
+    gross_loss = stats.get("m1_gross_loss_r", 0.0)
+    return {
+        "m1_entry_assist": cfg.m1_entry_assist,
+        "m1_assist_mode": cfg.m1_assist_mode if cfg.m1_entry_assist else None,
+        "m1_win_rate": (round(stats.get("m1_wins", 0) / m1_trades, 4)
+                        if m1_trades else None),
+        "m1_profit_factor": (round(stats.get("m1_gross_win_r", 0.0) / gross_loss, 3)
+                             if gross_loss else None),
+        "m1_average_r": (round(stats.get("m1_total_r", 0.0) / m1_trades, 4)
+                         if m1_trades else None),
+        "m1_avg_reclaim_lag_bars": (
+            round(stats.get("m1_reclaim_lag_sum_bars", 0) / confirmations, 3)
+            if confirmations else None),
+        "m1_avg_lead_minutes": (
+            round(stats.get("m1_lead_minutes_sum", 0.0) / early, 3)
+            if early else None),
+        "m1_unique_confirmation_rate": (round(unique / classified, 4)
+                                        if classified else None),
+        "m1_fill_conversion_rate": (
+            round(stats.get("m1_confirmations_filled", 0) / confirmations, 4)
+            if confirmations else None),
     }
 
 
@@ -203,7 +235,17 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                      "sweep_lag_bucket": _bucket(item.get("sweep_reclaim_lag_bars"),
                                                   [(1, "0"), (2, "1"),
                                                    (math.inf, "2+")]),
-                     "entry_attempt": item.get("ob_entry_attempt")})
+                     "entry_attempt": item.get("ob_entry_attempt"),
+                     "m1_lag_bucket": _bucket(item.get("m1_reclaim_lag_bars"),
+                                              [(1, "0"), (2, "1"),
+                                               (math.inf, "2+")]),
+                     "m1_lead_bucket": _bucket(item.get("m1_lead_minutes"),
+                                               [(1, "<1m"), (3, "1-3m"),
+                                                (5, "3-5m"), (math.inf, "5m+")]),
+                     "entry_spread_bucket": _bucket(item.get("entry_execution_spread"),
+                                                     [(0.1, "<0.10"), (0.2, "0.10-0.20"),
+                                                      (0.4, "0.20-0.40"),
+                                                      (math.inf, "0.40+")])})
         rows.append(item)
     fields = ["direction", "break_kind", "session_utc", "entry_hour", "weekday",
               "month", "ob_width_atr_bucket", "wait_bars_bucket", "m15_trend",
@@ -223,6 +265,11 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
     # immediate. Groups only materialize when the columns exist in the data.
     fields.extend(["setup_model", "is_revival", "is_reentry", "entry_attempt",
                    "sweep_lag_bucket", "spread_waited"])
+    # M1 Entry Assist dimensions: M5 vs M1 entries, unique-vs-early M1,
+    # M1 reclaim lag, M1 lead time, sequence status and spread buckets.
+    fields.extend(["entry_timeframe", "entry_trigger", "m1_unique_vs_m5",
+                   "m1_lag_bucket", "m1_lead_bucket", "m1_sequence_status",
+                   "entry_spread_bucket"])
     output = []
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -367,6 +414,9 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                             "sweep_reclaim_lag_bars", "spread_waited",
                             "spread_wait_seconds", "open_risk_before_entry",
                             "projected_open_risk_fraction",
+                            "entry_timeframe", "entry_trigger",
+                            "m1_reclaim_lag_bars", "m1_lead_minutes",
+                            "m1_unique_vs_m5", "m1_sequence_status",
                             "entry_execution_source", "entry_execution_spread",
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",
                             "demo_entry_slippage", "demo_close_price", "demo_exit_slippage"] if x in trades]

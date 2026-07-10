@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۷ — تست‌نویسی با pytest | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۷ از ۲۰</div>
+    <h1>تست‌نویسی با pytest</h1>
+    <p class="chapter-sub">هر ۱۰ فایل تست موجود پروژه — چه رفتاری تضمین می‌کنند، Arrange/Act/Assert آن‌ها چیست، و شکستنشان چه معنایی دارد.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#run">اجرای تست‌ها</a></li>
+      <li><a href="#aaa">الگوی Arrange/Act/Assert</a></li>
+      <li><a href="#tests">مرور تک‌تک تست‌ها</a></li>
+      <li><a href="#adding">چگونه برای قابلیت جدید تست اضافه کنیم</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    ۱۸۰۸ خط تست، پخش در ۱۰ فایل، پوششی است که ادعاهای معماریِ فصل‌های قبلی (دفاع در عمق Trend،
+    هرگز فراتر نرفتن از ریسک مجاز، هم‌ارزی زنده/بک‌تست، ایزوله‌بودن قابلیت‌های آزمایشی) را
+    <strong>اثبات</strong> می‌کند، نه فقط ادعا. این فصل هر فایل را تک‌به‌تک باز می‌کند.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt><dd>تمام ۱۰ فایل <code>pine_ob_bot/tests/*.py</code> (۱۸۰۸ خط)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۶ تا ۱۶</dd>
+  </div>
+
+  <h2 id="run">اجرای تست‌ها</h2>
+  <pre><code class="language-python"># از ریشهٔ ریپو
+pip install pytest
+pytest pine_ob_bot/tests/ -v</code></pre>
+  <p>
+    تمام فایل‌های تست الگوی مشترکی برای import دارند: ابتدا <code>pine_ob_bot.X</code> را امتحان
+    می‌کنند، و در صورت شکست، با افزودن مسیر به <code>sys.path</code> نسخهٔ بدون‌پیشوند را — یعنی
+    چه از ریشهٔ ریپو و چه از داخل خودِ <code>pine_ob_bot/</code> اجرا شوند، کار می‌کنند.
+  </p>
+
+  <h2 id="aaa">الگوی Arrange/Act/Assert</h2>
+  <p>هر تست خوب سه بخش دارد: <strong>Arrange</strong> (چیدن شرایط اولیه — یک بروکر، یک کندل، یک config)، <strong>Act</strong> (اجرای دقیقاً یک عملیات تحت آزمایش)، <strong>Assert</strong> (بررسی اینکه نتیجه دقیقاً همان چیزی است که انتظار می‌رفت). این جداسازی خواندن تست را — حتی برای کسی که کد اصلی را ننوشته — ساده می‌کند.</p>
+
+  <h2 id="tests">مرور تک‌تک تست‌ها</h2>
+
+  <h3>test_trend_filter.py</h3>
+  <p><strong>تضمین می‌کند:</strong> جدول صحت خالص buy/sell در برابر bullish/bearish/neutral در <code>trend_filter.py</code>، بدون درگیر شدن <code>PaperBroker</code>. <strong>اگر بشکند:</strong> بنیادی‌ترین قانون ایمنی جهت کل سیستم غلط شده — احتمالاً معاملات در جهت اشتباه اجازهٔ ورود می‌گیرند یا همه رد می‌شوند.</p>
+
+  <h3>test_paper_broker_trend.py</h3>
+  <p><strong>تضمین می‌کند:</strong> دروازهٔ Trend واقعاً در <code>PaperBroker</code> سیم‌کشی شده — هم در لحظهٔ ساخت سفارش، هم در لغو با تغییر Trend، هم در بازبررسی نهایی هر مسیر پر شدن (تیک، کندل، Sweep&amp;Reclaim). <strong>اگر بشکند:</strong> یکی از مسیرهای پر شدن دیگر Trend را قبل از باز کردن پوزیشن بررسی نمی‌کند.</p>
+
+  <h3>test_trend_engine_integration.py</h3>
+  <p><strong>تضمین می‌کند:</strong> روی یک دنبالهٔ ۹کندلیِ دستی‌تأییدشده (خنثی → BOS صعودی → CHoCH نزولی)، هم موتور واقعی <code>PineSwingOBEngine</code> درست کار می‌کند، هم ارکستراسیون زنده و تاریخی به نتیجهٔ یکسان می‌رسند. <strong>اگر بشکند:</strong> یا طبقه‌بندی BOS/CHoCH موتور عوض شده، یا مسیر زنده/تاریخی از هم واگرا شده‌اند.</p>
+
+  <h3>test_position_sizing.py</h3>
+  <p><strong>تضمین می‌کند:</strong> <code>calculate_safe_position_size</code> در ایزولهٔ کامل — هر دلیل رد، رفتار floor-never-round، سقف حجم، و سناریوی رگرسیونی خاص (equity=۱۰k، ریسک=۱٪، فاصله=۱۰۰۰). <strong>اگر بشکند:</strong> ریسک واقعی می‌تواند به‌خاطر باگ سایزینگ از حد مجاز کاربر فراتر برود — خطرناک‌ترین رگرسیون مالی ممکن.</p>
+
+  <h3>test_paper_broker_sizing.py</h3>
+  <p><strong>تضمین می‌کند:</strong> <code>PaperBroker._open</code> واقعاً از همان تابع سایزینگ استفاده می‌کند (نه یک محاسبهٔ موازی)، و <code>DemoExecutor._fit_open_request</code> هرگز از حجم Paper منحرف نمی‌شود (با MT5 جعلی، بدون وابستگی واقعی). <strong>اگر بشکند:</strong> Paper و Demo می‌توانند در ریسک واقعی از هم جدا شوند — نقض یک تضمین ایمنی حیاتی.</p>
+
+  <h3>test_breakeven.py</h3>
+  <p><strong>تضمین می‌کند:</strong> رفتار یک‌بار-arm-و-بدون-بازگشت Breakeven، در هر دو مسیر تیک و کندل، فیلدهای دقیق گزارش، اینکه یک برد بعد از arm شدن به‌اشتباه breakeven-exit شمرده نمی‌شود، و اینکه <code>DemoExecutor.modify_stop</code> واقعاً TP را دوباره ارسال می‌کند. <strong>اگر بشکند:</strong> Stop می‌تواند به عقب برگردد، دوباره arm شود، یا بین دو مسیر فیل ناهماهنگ شود — یا یک درخواست SL-modify در Demo، TP را پاک کند.</p>
+
+  <h3>test_entry_pivot_freshness.py</h3>
+  <p><strong>تضمین می‌کند:</strong> مرز شامل (inclusive) سن Pivot، محاسبهٔ سن از کندل تأیید (نه کاندیدا)، عدم fallback به یک Pivot قدیمی‌تر، و رفتار <code>None</code> = بدون محدودیت. <strong>اگر بشکند:</strong> setupهای کهنه ممکن است بی‌صدا پذیرفته شوند، یا setupهای تازه به‌اشتباه رد شوند.</p>
+
+  <h3>test_sweep_reclaim_window.py</h3>
+  <p><strong>تضمین می‌کند:</strong> با <code>N=1</code> (پیش‌فرض)، رفتار دقیقاً یکسان با قانون اصلیِ همان‌کندل است (اثبات‌شده روی یک random-walk ۴۰۰کندلی)؛ با <code>N=2</code> پنجرهٔ چندکندلی درست کار می‌کند. <strong>اگر بشکند:</strong> یا رفتار پیش‌فرض تولیدی بی‌صدا عوض شده (خطرناک)، یا ویژگی آزمایشی lag را غلط می‌شمارد.</p>
+
+  <h3>test_sweep_reclaim_tick_runner.py</h3>
+  <p><strong>تضمین می‌کند:</strong> پر شدن واقعی همیشه یک تیک <em>بعد از</em> کندل تأییدکننده رخ می‌دهد (هرگز روی خودِ کندل تأیید — بدون نگاه‌به‌آینده)؛ قوانین قیمت Ask/Bid برای خرید/فروش؛ یک Sweep بدون Reclaim تأیید نمی‌شود؛ و <code>run_tick_historical</code> واقعاً از طریق <code>process_signal_candle</code> واقعی عبور می‌کند (نه یک میان‌بر دستی). <strong>اگر بشکند:</strong> Sweep&amp;Reclaim ممکن است روی قیمت/جهت غلط پر شود یا یک باگ نگاه‌به‌آینده برگردد.</p>
+
+  <h3>test_revival_shadow_audit.py</h3>
+  <p><strong>تضمین می‌کند:</strong> کل چرخهٔ آزمایشیِ suspend→بازگشت Trend→Sweep تازه→Reclaim→پر شدن سایه، در حالی که سفارش <strong>واقعی</strong> در تمام مدت لغو باقی می‌ماند — هر تست صریحاً وضعیت سفارش واقعی را هم بررسی می‌کند. <strong>اگر بشکند:</strong> یا ریاضیات ممیزی سایه غلط است، یا بدتر، این ویژگی مشاهده‌گر واقعاً روی تصمیم معاملاتی واقعی اثر گذاشته — نقض «هرگز معامله نمی‌کند».</p>
+
+  <h2 id="adding">چگونه برای قابلیت جدید تست اضافه کنیم</h2>
+  <ol>
+    <li>یک فایل <code>test_&lt;feature&gt;.py</code> جدید در <code>pine_ob_bot/tests/</code> بسازید (یا تست را به نزدیک‌ترین فایل موجود اضافه کنید اگر رفتار مرتبط را گسترش می‌دهد).</li>
+    <li><strong>Arrange:</strong> کمترین حالت لازم را بسازید — اغلب یک <code>BotConfig(...)</code> با فقط پارامترهای مرتبط، و یک <code>PaperBroker(cfg, equity, spec)</code>.</li>
+    <li><strong>Act:</strong> دقیقاً یک متد عمومی را صدا بزنید (<code>add_ob</code>، <code>process_tick</code>، ...) — از صدا زدن متدهای خصوصی (زیرخط‌دار) در تست مگر ضروری پرهیز کنید.</li>
+    <li><strong>Assert:</strong> هم نتیجهٔ مستقیم (مقدار برگشتی) و هم side effectهای مهم (<code>lifecycle_state</code>، <code>stats</code>، رویدادهای ثبت‌شده) را بررسی کنید.</li>
+    <li>نام تست را توصیفی از رفتار بنویسید، نه از تابع (<code>test_stale_pivot_is_rejected</code>، نه <code>test_add_ob_2</code>).</li>
+  </ol>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>Fake Object به‌جای Mock پیچیده:</strong> <code>test_breakeven.py</code>/<code>test_paper_broker_sizing.py</code>
+    از کلاس‌های <code>_FakeMT5</code> دستی‌نوشته استفاده می‌کنند — یک شیء پایتونی سادهٔ سازگار با
+    همان رابط MT5، بدون هیچ وابستگی واقعی به شبکه یا ترمینال. این الگو اجازه می‌دهد
+    <code>DemoExecutor</code> (فصل ۲، حساس) بدون خطر واقعی تست شود.
+  </p>
+  <p>
+    <strong>تست رگرسیون با مقایسهٔ رفتار قدیم/جدید:</strong> چند تست (سایزینگ، Sweep&amp;Reclaim)
+    صریحاً یک سناریوی مشخص را به‌عنوان «همانی که باگ قدیمی را آشکار کرد» یادداشت می‌کنند — یک الگوی
+    ارزشمند: وقتی باگی را رفع می‌کنید، دقیقاً همان سناریو را به‌عنوان تست دائمی نگه دارید.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>حذف یا نادیده گرفتن یک تست «کند» یا «پیچیده» بدون فهمیدن اینکه چه ادعای ایمنی‌ای را اثبات می‌کند.</li>
+    <li>نوشتن تست روی متدهای خصوصی (<code>_open</code>, <code>_close</code>) وقتی رفتار از مسیر عمومی (<code>process_tick</code>) هم قابل مشاهده است — تست شکننده‌تر می‌شود.</li>
+    <li>فراموش کردن بررسی side effectها (مثل شمارنده‌های <code>stats</code>) و فقط بررسی مقدار برگشتی.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط) — طبق فهرست تمرین‌های اصلی: «نوشتن یک unit test»</h4>
+    <p>یک تست جدید بنویسید که تأیید کند وقتی <code>cfg.max_entry_pivot_age_bars</code> دقیقاً برابر
+    سن یک Pivot است (نه بیشتر، نه کمتر — مرز دقیق)، سفارش پذیرفته می‌شود. از الگوی
+    <code>test_entry_pivot_freshness.py</code> برای Arrange/Act/Assert الهام بگیرید.</p>
+    <details><summary>راهنما</summary><p class="hint">به فصل ۱۰ برگردید: شرط رد وقتی «سن از سقف <em>بیشتر</em> شود» است — یعنی مرز خودش باید هنوز پذیرفته شود (inclusive).</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا <code>test_position_sizing.py</code> «خطرناک‌ترین رگرسیون مالی ممکن» را پوشش می‌دهد؟</li>
+    <li>الگوی Fake MT5 چه مشکلی را حل می‌کند که Mock معمولی حل نمی‌کند؟</li>
+    <li>کدام تست ثابت می‌کند یک ویژگی «فقط مشاهده‌گر» واقعاً هرگز روی تصمیم واقعی اثر نمی‌گذارد؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    ۱۰ فایل تست، هرکدام یک ادعای ایمنی یا معماری مشخص را اثبات می‌کنند — از صحت جدول Trend گرفته تا
+    ایزوله‌بودن کامل قابلیت‌های آزمایشی از تصمیم واقعی. شکستن هرکدام، یک سرنخ دقیق می‌دهد که کدام
+    بخش از سیستم باید بررسی شود.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="16_reporting_cli.html"><span class="dir">→ فصل قبل</span>گزارش‌گیری و CLI</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="18_interactive_lab_guide.html"><span class="dir">فصل بعد ←</span>راه‌اندازی آزمایشگاه تعاملی</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

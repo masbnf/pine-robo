@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۸ — راه‌اندازی آزمایشگاه تعاملی | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۸ از ۲۰</div>
+    <h1>راه‌اندازی آزمایشگاه تعاملی</h1>
+    <p class="chapter-sub">چگونه <code>serve_journal.py</code> را اجرا کنید، معماری امنیتی آن، و اینکه هر آزمایش دقیقاً از کجا تا کجا با کد واقعی پروژه در تماس است.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#run">اجرا</a></li>
+      <li><a href="#noserver">حالت بدون سرور</a></li>
+      <li><a href="#architecture">معماری کلی</a></li>
+      <li><a href="#diagram">نمودار: CLI/Config/Broker/Reporter ↔ آزمایشگاه</a></li>
+      <li><a href="#security">معماری امنیتی</a></li>
+      <li><a href="#validate">اعتبارسنجی ورودی</a></li>
+      <li><a href="#contract">قرارداد JSON خروجی</a></li>
+      <li><a href="#registry">رجیستری آزمایش‌ها</a></li>
+      <li><a href="#simplified">کجا از نسخهٔ آموزشی ساده‌شده استفاده شده</a></li>
+      <li><a href="#limits">محدودیت منابع</a></li>
+      <li><a href="#isolation">جداسازی از ربات واقعی</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل‌های ۵ تا ۱۵ در چند نقطه یک بخش «آزمایشگاه تعاملی» داشتند بدون اینکه توضیح دهند خودِ آن
+    زیرساخت چگونه کار می‌کند. این فصل آن خلأ را پر می‌کند: کد پشتِ صحنه، مسیر یک درخواست از کلیک
+    دکمهٔ «اجرا» در مرورگر تا فراخوانی واقعیِ یک تابع در <code>pine_ob_bot</code> و بازگشتِ نتیجه.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt><dd><code>project_learning_journal/serve_journal.py</code>، <code>project_learning_journal/lab_experiments.py</code>، <code>project_learning_journal/assets/js/lab-client.js</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۵ تا ۱۵ (هرکدام حداقل یک آزمایش را معرفی کرده‌اند)</dd>
+  </div>
+
+  <h2 id="run">اجرا</h2>
+  <pre><code class="language-python">python project_learning_journal/serve_journal.py
+# یا با پورت دلخواه:
+python project_learning_journal/serve_journal.py --port 8800
+# بدون باز شدن خودکار مرورگر:
+python project_learning_journal/serve_journal.py --no-browser</code></pre>
+  <p>
+    پس از اجرا، آدرسی مثل <code>http://127.0.0.1:8766/00_index.html</code> چاپ و (مگر با
+    <code>--no-browser</code>) به‌طور خودکار در مرورگر باز می‌شود. اگر پورت پیش‌فرض اشغال باشد،
+    <code>find_open_port</code> تا ۲۰ پورت بعدی را امتحان می‌کند و پورت واقعی استفاده‌شده را چاپ می‌کند.
+    از این لحظه، تمام صفحات HTML همین پوشه از طریق همین سرور سرو می‌شوند و دکمهٔ «اجرا» در هر
+    آزمایشگاه به یک درخواست واقعی <code>POST /api/run</code> متصل می‌شود.
+  </p>
+
+  <h2 id="noserver">حالت بدون سرور</h2>
+  <p>
+    اگر فایل‌های HTML را مستقیماً (با دابل‌کلیک یا <code>file://</code>) بدون اجرای
+    <code>serve_journal.py</code> باز کنید، متن، کد، جدول‌ها و نمودارها کامل قابل خواندن‌اند — فقط
+    بخش آزمایشگاه، به‌جای خروجی زنده، پیام «برای اجرای تعاملی، <code>serve_journal.py</code> را
+    اجرا کنید» را نشان می‌دهد (این رفتار در <code>lab-client.js</code> پیاده شده: وقتی
+    <code>fetch("./api/run")</code> شکست بخورد — چه به‌خاطر نبودِ سرور، چه به‌خاطر باز بودن از
+    <code>file://</code> — به‌جای صفحهٔ خراب یا سفید، همین پیام راهنما نمایش داده می‌شود).
+  </p>
+
+  <h2 id="architecture">معماری کلی</h2>
+  <p>
+    آزمایشگاه از سه لایهٔ مستقل تشکیل شده که هرکدام مسئولیت محدودی دارد:
+  </p>
+  <ul>
+    <li><strong>Frontend (<code>lab-client.js</code>):</strong> یک تابع عمومی <code>JournalLab.mount(config)</code> که از روی یک شیء تنظیمات اعلانی (فیلدها، برچسب فارسی، نوع، بازهٔ مجاز)، فرم HTML را می‌سازد، پیش از ارسال روی خودِ مرورگر اعتبارسنجی سبک انجام می‌دهد، و نتیجه را در چند سطح (خلاصه، مراحل، معیارها، JSON خام) نمایش می‌دهد.</li>
+    <li><strong>HTTP Server (<code>serve_journal.py</code>):</strong> یک <code>ThreadingHTTPServer</code> مبتنی بر کتابخانهٔ استاندارد پایتون. GET فقط فایل‌های همین پوشه را سرو می‌کند؛ POST فقط مسیر دقیق <code>/api/run</code> را می‌پذیرد.</li>
+    <li><strong>Experiment Registry (<code>lab_experiments.py</code>):</strong> رجیستری <code>EXPERIMENTS</code> که هر شناسهٔ آزمایش را به یک تابع handler و یک لیست فیلد مجاز نگاشت می‌کند؛ هر handler کد واقعی <code>pine_ob_bot</code> را import و اجرا می‌کند.</li>
+  </ul>
+  <p>
+    نکتهٔ مهم مسیر داده: فرانت‌اند هرگز نام تابع یا کد پایتون نمی‌فرستد — فقط یک <code>experiment_id</code> رشته‌ای (مثلاً <code>"risk_sizing_calculator"</code>) و یک شیء <code>inputs</code>. بک‌اند این شناسه را در <code>EXPERIMENTS</code> جست‌وجو می‌کند؛ اگر پیدا نشود، هیچ کدی اجرا نمی‌شود.
+  </p>
+
+  <h2 id="diagram">نمودار: مسیر یک درخواست آزمایش</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="نمودار مسیر یک درخواست آزمایش">
+      <defs>
+        <marker id="arrow18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7ee2b8"/>
+        </marker>
+      </defs>
+      <style>
+        .n18{ fill:#1b2028; stroke:#2a3140; }
+        .nt18{ fill:#e7ebf3; font-size:12px; font-family:sans-serif; text-anchor:middle; }
+        .nts18{ fill:#9aa4b6; font-size:10.5px; font-family:sans-serif; text-anchor:middle; }
+        .core18{ stroke:#5aa9ff; stroke-width:1.6; }
+        .e18{ stroke:#7ee2b8; stroke-width:1.2; fill:none; marker-end:url(#arrow18); opacity:.85; }
+      </style>
+      <rect x="20" y="30" width="160" height="60" rx="8" class="n18"/>
+      <text x="100" y="55" class="nt18">صفحهٔ HTML فصل</text>
+      <text x="100" y="75" class="nts18">JournalLab.mount(config)</text>
+
+      <rect x="220" y="30" width="180" height="60" rx="8" class="n18"/>
+      <text x="310" y="55" class="nt18">اعتبارسنجی سمت مرورگر</text>
+      <text x="310" y="75" class="nts18">validateField() در lab-client.js</text>
+
+      <rect x="440" y="30" width="200" height="60" rx="8" class="n18"/>
+      <text x="540" y="55" class="nt18">POST ./api/run</text>
+      <text x="540" y="75" class="nts18">{experiment_id, inputs}</text>
+
+      <rect x="680" y="30" width="200" height="60" rx="8" class="n18 core18"/>
+      <text x="780" y="55" class="nt18">serve_journal.py</text>
+      <text x="780" y="75" class="nts18">do_POST → run_experiment()</text>
+
+      <rect x="680" y="140" width="200" height="60" rx="8" class="n18 core18"/>
+      <text x="780" y="165" class="nt18">validate_inputs()</text>
+      <text x="780" y="185" class="nts18">schema هر فیلد بررسی می‌شود</text>
+
+      <rect x="440" y="140" width="200" height="60" rx="8" class="n18"/>
+      <text x="540" y="165" class="nt18">EXPERIMENTS[id]["handler"]</text>
+      <text x="540" y="185" class="nts18">lab_experiments.py</text>
+
+      <rect x="220" y="140" width="200" height="60" rx="8" class="n18"/>
+      <text x="320" y="165" class="nt18">کد واقعی pine_ob_bot</text>
+      <text x="320" y="185" class="nts18">Config / Broker / Sizing / …</text>
+
+      <rect x="20" y="140" width="160" height="60" rx="8" class="n18"/>
+      <text x="100" y="163" class="nt18">{result, steps,</text>
+      <text x="100" y="180" class="nts18">metrics, warnings}</text>
+
+      <rect x="220" y="230" width="460" height="50" rx="8" class="n18"/>
+      <text x="450" y="260" class="nt18">نمایش در صفحه: خلاصه ← مراحل اجرا ← معیارها ← JSON خام</text>
+
+      <path d="M180,60 H220" class="e18"/>
+      <path d="M400,60 H440" class="e18"/>
+      <path d="M540,90 V140" class="e18"/>
+      <path d="M780,90 V140" class="e18"/>
+      <path d="M680,170 H640" class="e18"/>
+      <path d="M440,170 H420" class="e18"/>
+      <path d="M220,170 H180" class="e18"/>
+      <path d="M100,200 V230 H220" class="e18"/>
+    </svg>
+    <div class="diagram-caption">
+      فرانت‌اند فقط <code>experiment_id</code> و مقادیر ورودی می‌فرستد؛ سرور شناسه را در رجیستری ثابت جست‌وجو می‌کند، ورودی‌ها را با schema اعتبارسنجی می‌کند، و تنها در صورت عبور از هر دو ایست، handلر واقعی — که کد اصلی pine_ob_bot را صدا می‌زند — اجرا می‌شود.
+    </div>
+  </div>
+
+  <h2 id="security">معماری امنیتی</h2>
+  <p>
+    این آزمایشگاه اجازهٔ اجرای کد دلخواه کاربر را نمی‌دهد — نه <code>eval</code>، نه
+    <code>exec</code>، نه <code>subprocess</code>/<code>os.system</code>، نه import پویا، نه مسیر
+    فایل دلخواه، نه اتصال شبکه/MT5، نه ارسال سفارش. هر آزمایش از قبل، به‌عنوان یک تابع پایتونی
+    ثابت در <code>lab_experiments.py</code>، نوشته شده؛ کاربر فقط اجازه دارد <em>مقدار</em> چند
+    ورودی از پیش‌تعریف‌شده را تغییر دهد، نه خودِ منطق.
+  </p>
+  <div class="code-path">pine_ob_bot/…/serve_journal.py — JournalRequestHandler._safe_static_path</div>
+  <pre><code class="language-python">def _safe_static_path(self, url_path: str) -> Path | None:
+    if url_path in ("", "/"):
+        url_path = "/00_index.html"
+    rel = url_path.lstrip("/")
+    candidate = (JOURNAL_ROOT / rel).resolve()
+    try:
+        candidate.relative_to(JOURNAL_ROOT)
+    except ValueError:
+        return None  # تلاش برای path traversal
+    if candidate.name.startswith("_") or "runtime_data" in candidate.parts:
+        return None  # فایل‌های داخلی/کاری، هرگز سرو نشوند
+    if not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate</code></pre>
+  <p>
+    خط به خط: <code>(JOURNAL_ROOT / rel).resolve()</code> مسیر را به شکل مطلق و نرمال‌شده تبدیل
+    می‌کند (شامل حل کردن <code>..</code>)؛ سپس <code>candidate.relative_to(JOURNAL_ROOT)</code>
+    تضمین می‌کند که مسیر نهایی هنوز داخل همین پوشه است — اگر کاربر مثلاً
+    <code>/../../etc/passwd</code> بفرستد، <code>relative_to</code> یک <code>ValueError</code> پرتاب
+    می‌کند و تابع <code>None</code> برمی‌گرداند (که در <code>do_GET</code> به ۴۰۴ تبدیل می‌شود، نه
+    خطای سرور). خط بعد صریحاً فایل‌های داخلی (شروع‌شونده با <code>_</code>، مثل
+    <code>lab_experiments.py</code> اگر کسی حدس بزند) و هر چیز داخل <code>runtime_data/</code> را
+    مسدود می‌کند — یعنی حتی فایل‌های پایتونی سرور هم از طریق HTTP قابل دانلود نیستند.
+  </p>
+  <p>
+    برای <code>POST /api/run</code>، مسیر امنیتی متفاوت اما به همان اندازه محدودکننده است: تنها
+    ورودی که از کاربر پذیرفته می‌شود یک شناسهٔ رشته‌ای (<code>experiment_id</code>) و یک شیء
+    <code>inputs</code> است. مسیر بین این‌جا تا اجرای واقعی از سه ایست بازرسی عبور می‌کند —
+    وجود شناسه در رجیستری، اعتبارسنجی schema هر فیلد، و اجرای handler درون
+    <code>ThreadPoolExecutor</code> با timeout سخت — که در دو بخش بعدی جداگانه شرح داده شده‌اند.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    هیچ‌جای این دو فایل، رشتهٔ ورودی کاربر مستقیماً به یک نام تابع/ماژول یا مسیر فایل تبدیل نمی‌شود.
+    تنها «انتخاب» واقعی کاربر، یک کلید در دیکشنری ثابت <code>EXPERIMENTS</code> است که از پیش در
+    کد سرور نوشته شده — نه چیزی که کاربر بتواند به آن اضافه کند.
+  </div>
+
+  <h2 id="validate">اعتبارسنجی ورودی</h2>
+  <p>
+    اعتبارسنجی سمت سرور همیشه مرجع نهایی است (اعتبارسنجی مرورگر فقط برای تجربهٔ کاربری سریع‌تر
+    است و هرگز به‌تنهایی کافی فرض نمی‌شود). تابع <code>validate_inputs</code> سه کار انجام می‌دهد:
+  </p>
+  <div class="code-path">project_learning_journal/serve_journal.py — validate_inputs</div>
+  <pre><code class="language-python">def validate_inputs(experiment_id: str, raw_inputs) -> tuple[dict | None, list[str]]:
+    spec = EXPERIMENTS.get(experiment_id)
+    if spec is None:
+        return None, [f"آزمایش ناشناخته: {experiment_id}"]
+    if not isinstance(raw_inputs, dict):
+        return None, ["ورودی باید یک شیء JSON باشد."]
+
+    allowed_names = {f["name"] for f in spec["fields"]}
+    extra = set(raw_inputs) - allowed_names
+    if extra:
+        return None, [f"ورودی‌های غیرمجاز: {', '.join(sorted(extra))}"]
+    ...</code></pre>
+  <p>
+    به‌ترتیب: (۱) اگر <code>experiment_id</code> در رجیستری نباشد، بلافاصله رد می‌شود — هیچ تلاشی
+    برای «حدس زدن» یک handler نمی‌شود. (۲) اگر <code>inputs</code> اصلاً یک شیء JSON نباشد (مثلاً
+    رشته یا آرایه)، رد می‌شود. (۳) هر کلید در <code>inputs</code> که در لیست فیلدهای مجاز آن
+    آزمایش نباشد، کل درخواست را رد می‌کند — یعنی حتی اگر بقیهٔ فیلدها معتبر باشند، وجود <em>یک</em>
+    کلید اضافی (که می‌تواند تلاش برای تزریق باشد) کافی است. سپس <code>_validate_scalar</code> هر
+    فیلد را برحسب <code>type</code> اعلان‌شده‌اش (int/float/bool/select/str) و
+    <code>min</code>/<code>max</code>/<code>options</code> بررسی می‌کند.
+  </p>
+
+  <h2 id="contract">قرارداد JSON خروجی</h2>
+  <p>هر پاسخ موفق <code>/api/run</code> این شکل را دارد:</p>
+  <pre><code class="language-python">{
+  "success": true,
+  "experiment_id": "risk_sizing_calculator",
+  "inputs": { ... ورودی‌های پاک‌سازی‌شده ... },
+  "result": { "summary": "...", ... },
+  "steps": ["۱. ...", "۲. ...", ...],
+  "metrics": { ... },
+  "warnings": [],
+  "execution_time_ms": 4.2
+}</code></pre>
+  <p>
+    فیلد <code>steps</code> («مراحل اجرا») همیشه از روی مقادیر واقعیِ محاسبه‌شده در طول اجرای
+    handler ساخته می‌شود — نه یک متن ثابت. برای نمونه در <code>h_entry_pivot_detection</code>،
+    خودِ حلقهٔ پردازش کندل‌به‌کندل، هر بار که detector واقعی یک Pivot تأیید می‌کند، یک خط توضیحی به
+    <code>steps</code> اضافه می‌کند؛ اگر پارامترهای ورودی را عوض کنید، متن این مراحل هم واقعاً
+    عوض می‌شود چون از خروجی واقعیِ <code>ClassicEntryPivotDetector.process</code> می‌آید.
+  </p>
+  <p>
+    فیلد <code>result</code> در چند سطح در frontend نمایش داده می‌شود: یک خلاصهٔ یک‌خطی برای
+    مبتدی (<code>result.summary</code>)، مراحل اجرا، معیارهای عددی کلیدی (<code>metrics</code>)،
+    و در یک بخش بازشوندهٔ جداگانه، کل شیء JSON خام برای کسی که می‌خواهد ساختار کامل را ببیند.
+  </p>
+
+  <h2 id="registry">رجیستری آزمایش‌ها</h2>
+  <div class="code-path">project_learning_journal/lab_experiments.py — EXPERIMENTS (خلاصه‌شده)</div>
+  <pre><code class="language-python">EXPERIMENTS = {
+    "risk_sizing_calculator": {
+        "handler": h_risk_sizing_calculator,
+        "fields": [
+            _f("equity", "float", 10000, min=1, max=10000000),
+            _f("risk_percent", "float", 0.01, min=0.0001, max=1),
+            ...
+        ],
+    },
+    ...
+}</code></pre>
+  <p>
+    ده کلید ثبت‌شده در این رجیستری دقیقاً با ده experimentId استفاده‌شده در فصل‌های ۵ تا ۱۵ مطابقت
+    دارند: <code>candle_builder</code> (فصل ۵)، <code>trend_detection_basic</code> (فصل ۶)،
+    <code>entry_pivot_detection</code> (فصل ۷)، <code>bos_choch_classifier</code> (فصل ۸)،
+    <code>sweep_and_reclaim</code> (فصل ۹)، <code>risk_sizing_calculator</code> (فصل ۱۱)،
+    <code>take_profit_calculator</code> و <code>breakeven_simulator</code> (فصل ۱۲)،
+    <code>pending_order_lifecycle</code> (فصل ۱۳)، <code>mini_backtest</code> (فصل ۱۵). هر خط
+    <code>_f(name, type, default, ...)</code> دقیقاً یک ورودی مجاز را با نام فنی، نوع داده، مقدار
+    پیش‌فرض و بازهٔ مجاز تعریف می‌کند — همان چیزی که هم فرم HTML از روی آن ساخته می‌شود، هم
+    اعتبارسنجی سمت سرور از همین لیست می‌خواند (یک منبع حقیقت واحد، نه دو تعریف جدا در دو زبان).
+  </p>
+
+  <h2 id="simplified">کجا از نسخهٔ آموزشی ساده‌شده استفاده شده</h2>
+  <p>
+    اکثر handlerها مستقیماً کلاس‌ها/توابع واقعی <code>pine_ob_bot</code> را فراخوانی می‌کنند
+    (<code>BotConfig</code>، <code>PineSwingOBEngine</code>، <code>ClassicEntryPivotDetector</code>،
+    <code>PaperBroker</code>، <code>calculate_safe_position_size</code>،
+    <code>run_historical</code>). دو استثنای صریح:
+  </p>
+  <div class="callout experimental">
+    <span class="callout-tag">قابلیت آزمایشی</span>
+    در <code>h_sweep_and_reclaim</code>، قیمت پر شدن با فرض <code>spread=0</code> محاسبه می‌شود
+    («نسخهٔ ساده‌شدهٔ آموزشی» — طبق کد واقعی در <code>historical.py</code>/<code>paper.py</code>،
+    برای خرید <code>close + spread</code> و برای فروش <code>close</code> استفاده می‌شود). تابع
+    تعیین‌کنندهٔ خودِ Sweep/Reclaim (<code>PaperBroker._sweep_reclaim_window</code>) اما بدون
+    تغییر و مستقیماً فراخوانی می‌شود.
+  </div>
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    در <code>h_bos_choch_classifier</code>، خطِ طبقه‌بندی BOS/CHoCH («مخالفِ Trend فعلی = CHoCH،
+    هم‌جهت یا خنثی = BOS») به‌صورت مستقیم در فایل آزمایشگاه هم نوشته شده تا مرحلهٔ آموزشی جدا از
+    فراخوانی <code>PaperBroker.add_ob</code> نمایش داده شود؛ این همان قاعدهٔ یک‌خطیِ
+    <code>pine_engine.py::process</code> است، نه بازنویسی منطق پیچیده‌تر — سپس نتیجهٔ واقعیِ
+    پذیرش/رد همچنان از فراخوانی واقعی <code>add_ob</code> می‌آید، نه از حدس دستی.
+  </div>
+
+  <h2 id="limits">محدودیت منابع</h2>
+  <table>
+    <thead><tr><th>محدودیت</th><th>مقدار</th><th>محل اعمال</th></tr></thead>
+    <tbody>
+      <tr><td>Timeout هر اجرا</td><td>۸ ثانیه</td><td><code>REQUEST_TIMEOUT_SECONDS</code> در <code>run_experiment</code></td></tr>
+      <tr><td>سقف اجرای هم‌زمان</td><td>۴</td><td><code>_RUN_SEMAPHORE</code> / <code>ThreadPoolExecutor(max_workers=4)</code></td></tr>
+      <tr><td>سقف اندازهٔ بدنهٔ درخواست</td><td>۲۰۰٬۰۰۰ بایت</td><td><code>MAX_BODY_BYTES</code> در <code>do_POST</code></td></tr>
+      <tr><td>سقف تعداد کندل در بک‌تست آموزشی</td><td>دیتاست ثابت ۱۵۰ کندلی</td><td><code>data_samples/mini_backtest_sample.csv</code></td></tr>
+      <tr><td>سقف طول رشتهٔ ورودی</td><td>۱۲۸ نویسه</td><td><code>MAX_STRING_LEN</code></td></tr>
+    </tbody>
+  </table>
+  <p>
+    وقتی ظرفیت هم‌زمانی پر باشد، <code>_RUN_SEMAPHORE.acquire(blocking=False)</code> بلافاصله
+    <code>False</code> برمی‌گرداند — سرور هرگز منتظر یک اجرای دیگر نمی‌ماند، فقط خطای «ظرفیت پر
+    است» را فوراً برمی‌گرداند. اگر یک اجرا از ۸ ثانیه بگذرد، <code>future.result(timeout=...)</code>
+    یک <code>TimeoutError</code> پرتاب می‌کند که به پیام فارسیِ «اجرا بیش از حد مجاز طول کشید»
+    تبدیل می‌شود — خودِ thread ممکن است هنوز در پس‌زمینه ادامه یابد، اما پاسخ HTTP دیگر منتظرش
+    نمی‌ماند.
+  </p>
+
+  <h2 id="isolation">جداسازی از ربات واقعی</h2>
+  <p>
+    هیچ handler ای مسیر live (<code>app.py</code>، <code>mt5_feed.py</code>،
+    <code>demo_executor.py</code>، <code>dashboard_server.py</code>) را import یا اجرا نمی‌کند.
+    تنها آزمایشی که فایل روی دیسک می‌نویسد <code>mini_backtest</code> است؛ آن هم یک پوشهٔ موقتِ
+    یکتا (<code>runtime_data/lab_backtest_&lt;uuid&gt;/</code>) می‌سازد، مسیر پایگاه‌دادهٔ
+    <code>BotConfig.db_path</code> را به همان پوشه می‌دهد (نه به دیتابیس اصلی پروژه)، و در پایان با
+    <code>shutil.rmtree(tmp_dir, ignore_errors=True)</code> — چه اجرا موفق شود چه با خطا مواجه شود
+    (بخش <code>finally</code>) — پاک می‌شود.
+  </p>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی</span>
+    در محیط آزمایش این ژورنال (sandbox لینوکسی با یک درایو شبکه‌ای مانت‌شده)، فعال‌سازی
+    <code>PRAGMA journal_mode=WAL</code> در <code>StateStore.__init__</code> (فایل
+    <code>pine_ob_bot/storage.py</code>) با خطای سطح فایل‌سیستم مواجه شد، چون WAL به قابلیت
+    mmap/حافظهٔ مشترک نیاز دارد که آن فایل‌سیستم خاص فراهم نمی‌کند. این با تست مستقیم
+    <code>sqlite3</code> (بدون هیچ کد پروژه) روی همان مسیر تکرار و تأیید شد که مخصوص آن محیط
+    sandbox است، نه یک ایراد در کد پروژه یا در <code>lab_experiments.py</code> — روی دیسک محلی
+    واقعی (مثل کامپیوتر شما) انتظار می‌رود <code>mini_backtest</code> بدون مشکل اجرا شود. جزئیات
+    کامل در <code>documentation_report.html</code>.
+  </div>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>سرور HTTP حداقلی با کتابخانهٔ استاندارد:</strong> بدون هیچ فریم‌ورک خارجی (Flask/FastAPI)،
+    فقط <code>http.server.BaseHTTPRequestHandler</code> و <code>ThreadingHTTPServer</code> — نشان
+    می‌دهد یک API کوچک و امن چقدر کد کم نیاز دارد وقتی محدودهٔ کارش دقیقاً مشخص باشد.
+  </p>
+  <p>
+    <strong>Allowlist در برابر Denylist:</strong> رجیستری <code>EXPERIMENTS</code> و لیست فیلدهای
+    مجاز هر آزمایش، هر دو الگوی «فقط چیزی که صریحاً مجاز شده، اجرا می‌شود» را نشان می‌دهند — نه
+    تلاش برای فهرست‌کردن همهٔ چیزهای ممنوع (که همیشه ناقص است).
+  </p>
+  <p>
+    <strong>جداسازی state با پوشهٔ موقتِ یکتا:</strong> <code>uuid.uuid4().hex[:12]</code> در
+    <code>h_mini_backtest</code> تضمین می‌کند دو اجرای هم‌زمان هرگز در یک پوشه با هم تداخل نکنند —
+    یک الگوی عمومی برای هر عملیاتی که باید فایل موقت بنویسد.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فرض اینکه چون اعتبارسنجی سمت مرورگر (<code>validateField</code>) رد می‌کند، سمت سرور لازم نیست — سمت سرور همیشه تکرار می‌شود چون مرورگر قابل‌اعتماد نیست.</li>
+    <li>افزودن یک آزمایش جدید بدون افزودن آن به <code>EXPERIMENTS</code> — handler تنها با import شدنش اجرا نمی‌شود، باید در رجیستری هم ثبت شود.</li>
+    <li>نوشتن مستقیم در <code>runtime_data/</code> با نام فایل ثابت به‌جای یک پوشهٔ موقتِ یکتا — باعث تداخل بین اجراهای هم‌زمان می‌شود.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط) — یک آزمایش جدید بسازید</h4>
+    <p>
+      یک تابع <code>h_ob_width_atr(inputs)</code> بنویسید که عرض یک Order Block (بر حسب
+      <code>high - low</code>) را به ATR تقسیم می‌کند و نشان می‌دهد آیا از یک آستانهٔ ورودی
+      بزرگ‌تر است یا نه (پیوند با تمرین ۲.۱ فصل ۱۹). سپس آن را در <code>EXPERIMENTS</code> با یک
+      لیست فیلد مناسب (<code>ob_high</code>، <code>ob_low</code>، <code>atr</code>،
+      <code>min_ratio</code>) ثبت کنید.
+    </p>
+    <details><summary>راهنما</summary><p class="hint">به الگوی <code>h_take_profit_calculator</code> نگاه کنید — کوتاه‌ترین handler موجود، بدون وابستگی به یک broker کامل، نمونهٔ خوبی برای شروع است.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا فرانت‌اند هرگز نام تابع پایتون نمی‌فرستد، فقط یک <code>experiment_id</code> رشته‌ای؟</li>
+    <li>اگر یک کلید اضافی و ناشناخته در <code>inputs</code> بفرستید، دقیقاً کدام تابع و کدام خط آن را رد می‌کند؟</li>
+    <li>چرا <code>mini_backtest</code> تنها آزمایشی است که به یک پوشهٔ موقتِ یکتا نیاز دارد، در حالی که بقیه ندارند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    آزمایشگاه تعاملی از سه لایهٔ ساده تشکیل شده — فرم اعلانی در مرورگر، یک سرور HTTP حداقلی، و
+    رجیستری‌ای از توابع از پیش‌نوشته‌شده که مستقیماً کد واقعی <code>pine_ob_bot</code> را اجرا
+    می‌کنند. هیچ کد دلخواهی از کاربر پذیرفته نمی‌شود؛ تنها چیزی که کاربر کنترل می‌کند، مقدار چند
+    ورودی عددی/انتخابیِ از پیش تعریف‌شده است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="17_testing.html"><span class="dir">→ فصل قبل</span>تست‌نویسی با pytest</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="19_exercises.html"><span class="dir">فصل بعد ←</span>تمرین‌های تجمیعی</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

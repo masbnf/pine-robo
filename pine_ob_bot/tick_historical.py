@@ -10,6 +10,7 @@ from typing import Iterable
 from .config import BotConfig
 from .entry_pivot import ClassicEntryPivotDetector
 from .liquidity_context import LiquidityTracker
+from .m1 import M1Builder
 from .models import Candle, Tick
 from .mtf_context import M15Context
 from .paper import PaperBroker, SymbolSpec
@@ -80,7 +81,8 @@ class M5Builder:
 
 
 def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float,
-                        output_root: Path, label: str, warmup_bars: int = 500) -> dict:
+                        output_root: Path, label: str, warmup_bars: int = 500,
+                        decision_log: bool = False, m1_debug: bool = False) -> dict:
     broker = PaperBroker(cfg, initial_equity, SymbolSpec())
     broker.enable_entry_pivot_gate()
     engine = PineSwingOBEngine(cfg)
@@ -151,7 +153,27 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
             broker.pending.clear()
             trading_started = True
 
+    # M1 Entry Assist: the aggregator only exists when the flag is on, so a
+    # baseline run has literally zero M1 overhead and is bit-identical.
+    m1_builder = M1Builder() if cfg.m1_entry_assist else None
+    if broker.m1 is not None:
+        broker.m1.debug = m1_debug
+
     for tick in iter_ticks(paths):
+        # Documented M5-boundary ordering (prevents look-ahead): the tick
+        # that opens a new bucket FIRST closes the final M1 of the old M5
+        # window, which is processed while only pre-existing setups exist;
+        # THEN the M5 closes and may create new setups, whose
+        # first_eligible_m1_index points at the NEXT M1 -- so an M1 that
+        # closed inside the creating M5 candle can never confirm it.
+        if m1_builder is not None:
+            gaps_before = m1_builder.counters["m1_tick_gaps"]
+            closed_m1 = m1_builder.push(tick)
+            if closed_m1 is not None:
+                broker.process_m1_candle(closed_m1)
+            if (broker.m1 is not None and
+                    m1_builder.counters["m1_tick_gaps"] > gaps_before):
+                broker.m1.note_window_gap()
         closed = builder.push(tick)
         if closed:
             close_bar(closed)
@@ -160,9 +182,31 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
         else:
             broker._observe_spread(max(0.0, tick.ask - tick.bid))
         ticks += 1
+    if m1_builder is not None:
+        for key, value in m1_builder.counters.items():
+            broker.stats[key] = value
 
     output_root.mkdir(parents=True, exist_ok=True)
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)
+    # Structured event log: M1 decision events always (when the engine ran);
+    # --decision-log adds the core trend/pivot/sizing decision streams.
+    events: list[dict] = []
+    if broker.m1 is not None:
+        events.extend(broker.m1.decision_events)
+        for shadow_event in broker.m1.shadow_events:
+            events.append({"event": "m1_shadow_trade_closed", "level": "INFO",
+                           "feature": "m1_entry_assist", **shadow_event})
+    if decision_log:
+        for event in broker.trend_events:
+            events.append({"level": "DECISION", "feature": "core", **event})
+        for event in broker.pivot_events:
+            events.append({"level": "INFO", "feature": "core", **event})
+        for event in broker.rejected_sizing:
+            events.append({"event": "order_rejected_sizing", "level": "DECISION",
+                           "feature": "core", **event})
+    if events:
+        from .feature_flags import write_events_jsonl
+        write_events_jsonl(output_root / f"tick_{safe}_events.jsonl", events)
     summary = export_reports(broker, output_root / f"tick_{safe}_trades.csv",
                              output_root / f"tick_{safe}_summary.csv")
     export_breakdown(broker, output_root / f"tick_{safe}_breakdown.csv")

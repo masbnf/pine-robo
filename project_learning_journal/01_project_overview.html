@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱ — کلیات پروژه | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱ از ۲۰</div>
+    <h1>کلیات پروژه</h1>
+    <p class="chapter-sub">pine_ob_bot چیست، چه مسئله‌ای را حل می‌کند، و چرا اصلاً «Paper Trader» است نه یک ربات معاملهٔ واقعی.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#prereq">پیش‌نیازها</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#problem">مسئله‌ای که پروژه حل می‌کند</a></li>
+      <li><a href="#two-bots">نکتهٔ مهم: دو پروژهٔ مجزا در یک ریپو</a></li>
+      <li><a href="#flow">جریان اجرای بسیار کلی</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#code">نمونهٔ کد واقعی: سطح بستهٔ pine_ob_bot</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    قبل از خواندن حتی یک خط کد، باید بدانید این پروژه دقیقاً چه کاری انجام می‌دهد، چه کاری انجام
+    نمی‌دهد، و در کجای ریپازیتوری قرار دارد. این فصل نقشهٔ ذهنی اولیه را می‌سازد تا فصل‌های بعدی
+    (معماری، جریان اجرا، تنظیمات) روی آن سوار شوند.
+  </p>
+
+  <h2 id="prereq">پیش‌نیازهای فصل</h2>
+  <p>هیچ دانش قبلی از ترید یا از این پروژه لازم نیست. فقط آشنایی خیلی مقدماتی با اینکه پایتون «پکیج» و «ماژول» دارد کافی است.</p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd><code>pine_ob_bot/__init__.py</code>، <code>README.md</code>، <code>run_pine_ob_paper.py</code> (فقط برای نگاه کلی)</dd>
+    <dt>نقش در کل پروژه</dt>
+    <dd>این فصل معرفی است؛ خودِ کد اجرایی هنوز بررسی نمی‌شود (از فصل ۲ به بعد).</dd>
+  </div>
+
+  <h2 id="problem">مسئله‌ای که پروژه حل می‌کند</h2>
+  <p>
+    <code>pine_ob_bot</code> بازتولید مستقل و کاملاً پایتونیِ یک اندیکاتور Pine (LuxAlgo SMC،
+    مجوز CC BY-NC-SA 4.0، غیرتجاری) است. اندیکاتورهای Pine فقط داخل TradingView نمایش داده
+    می‌شوند و نمی‌توانند مستقل تصمیم بگیرند یا معامله را دنبال کنند. این پروژه همان منطق
+    Smart Money Concepts (شناسایی Swing، شکست ساختار، Order Block) را در پایتون بازسازی می‌کند
+    تا بتواند:
+  </p>
+  <ul>
+    <li>به‌صورت زنده به MetaTrader 5 وصل شود و کندل‌های <strong>بستهٔ M5</strong> نماد XAUUSD را بخواند (فقط‌خواندنی — <code>order_send</code> هرگز از این مسیر صدا زده نمی‌شود).</li>
+    <li>روی آن داده، سفارش‌های محدود (limit) مجازی بسازد.</li>
+    <li>با تیک‌های زندهٔ Bid/Ask، آن سفارش‌ها را در یک «حساب کاغذی» درون‌حافظه/SQLite پر (fill) و مدیریت کند.</li>
+    <li>نتیجه را به‌صورت CSV/HTML گزارش بدهد — بدون اینکه حتی یک بار پول واقعی یا حتی یک سفارش دمو جابه‌جا شود (مگر با پرچم صریح <code>--demo-orders</code>، که آن هم فقط به حساب‌های Demo محدود است).</li>
+  </ul>
+  <p>
+    به همین دلیل در سراسر این ژورنال روی سه اصطلاح دقیق تأکید می‌شود: <strong>Paper Trading</strong>
+    (شبیه‌سازی کامل، بدون هیچ تماسی با MT5 برای ارسال سفارش)، <strong>Demo Execution</strong>
+    (یک لایهٔ اختیاری که همان تصمیم Paper را روی یک حساب Demo واقعی MT5 هم ثبت می‌کند)، و
+    <strong>Backtest</strong> (اجرای همان منطق روی دادهٔ تاریخی به‌جای فید زنده).
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    استراتژی معاملاتی خلاصه: <em>BOS (تعیین جهت) → Sweep نقدینگی (اختیاری بسته به تنظیمات) → لمس
+    Order Block → CHoCH یا Sweep&amp;Reclaim به‌عنوان تریگر → ورود → SL روی لبهٔ Order Block →
+    TP بر اساس RR یا نقدینگی</em>. هر مرحله در فصل‌های ۶ تا ۱۰ جداگانه و با ارجاع دقیق به کد باز می‌شود.
+  </div>
+
+  <h2 id="two-bots">نکتهٔ مهم: دو پروژهٔ مجزا در یک ریپازیتوری</h2>
+  <p>
+    اگر ریشهٔ ریپو را باز کنید، پوشه‌ها/فایل‌هایی مثل <code>config/settings.py</code>،
+    <code>backtest/engine.py</code> و <code>data/loader.py</code> را هم می‌بینید. این‌ها متعلق به
+    یک <strong>بات SMC/MTF دیگر و مستقل</strong> هستند (همان که در <code>STRATEGY.md</code> ریشه
+    توضیح داده شده) — نه پروژهٔ موضوع این ژورنال.
+  </p>
+  <p>
+    دامنهٔ این مستندات فقط پکیج <code>pine_ob_bot/</code> و اسکریپت اجرایی
+    <code>run_pine_ob_paper.py</code> در ریشه است («Standalone Pine Swing-OB paper trader»، طبق
+    توضیح خودِ <code>README.md</code>). دو نکتهٔ فنی هست که این دو پروژه را به هم متصل می‌کند و باید
+    از همان ابتدا بدانید تا در فصل‌های بعد غافلگیر نشوید:
+  </p>
+  <ul>
+    <li><code>pine_ob_bot/historical.py</code> برای خواندن CSV تاریخی، تابع <code>load_m5</code> را از پکیج مستقل <code>data.loader</code> (همان پروژهٔ دیگر) import می‌کند.</li>
+    <li><code>pine_ob_bot/mt5_feed.py</code> در نبود متغیرهای محیطی <code>MT5_LOGIN</code>/<code>MT5_PASSWORD</code>/<code>MT5_SERVER</code>، به‌صورت fallback به <code>config.settings.MT5</code> (باز هم همان پروژهٔ دیگر) مراجعه می‌کند.</li>
+  </ul>
+  <p>یعنی <code>pine_ob_bot</code> کاملاً مستقل نیست؛ در دو نقطهٔ مشخص به بیرون از پکیج خودش وصل می‌شود.</p>
+
+  <h2 id="flow">جریان اجرای بسیار کلی</h2>
+  <p>سه «راه ورود» به منطق یکسان وجود دارد (جزئیات کامل در فصل ۳):</p>
+  <ol>
+    <li><strong>زنده:</strong> <code>python run_pine_ob_paper.py</code> — به MT5 وصل می‌شود، بی‌نهایت اجرا می‌ماند.</li>
+    <li><strong>بک‌تست کندلی:</strong> <code>python run_pine_ob_paper.py --backtest data/XAUUSD_M5.csv</code> — همان منطق را روی CSV تاریخی با spread ثابت اجرا می‌کند.</li>
+    <li><strong>یک اجرا و خروج:</strong> <code>python run_pine_ob_paper.py --once</code> — یک دور کامل catch-up/export و خروج (مناسب اجرای زمان‌بندی‌شده).</li>
+  </ol>
+  <p>هر سه مسیر، همان <code>PineSwingOBEngine</code> و همان <code>PaperBroker</code> را با همان ترتیب فراخوانی صدا می‌زنند — این یک ادعای معماریِ صریح در کد است: بک‌تست و اجرای زنده نباید در تصمیم‌های ساختاری/ورودی از هم واگرا شوند، فقط در «نحوهٔ پر شدن سفارش» ممکن است تفاوت داشته باشند.</p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>پکیج در برابر اسکریپت:</strong> پوشه‌ای که یک فایل <code>__init__.py</code> دارد، یک
+    «پکیج» پایتون است و می‌توان از آن <code>import</code> کرد؛ <code>pine_ob_bot/</code> چنین پکیجی
+    است. در مقابل، <code>run_pine_ob_paper.py</code> در ریشه یک اسکریپت مستقل (entry point) است که
+    از آن پکیج import می‌کند، نه برعکس.
+  </p>
+  <p>
+    <strong><code>__all__</code>:</strong> لیستی در <code>__init__.py</code> که مشخص می‌کند
+    <code>from pine_ob_bot import *</code> دقیقاً چه نام‌هایی را وارد می‌کند — سطح API عمومیِ آگاهانهٔ پکیج.
+  </p>
+
+  <div class="code-path">pine_ob_bot/__init__.py</div>
+  <pre><code class="language-python">from .config import BotConfig
+from .models import Candle, Tick
+from .pine_engine import PineSwingOBEngine
+from .paper import PaperBroker
+
+__all__ = ["BotConfig", "Candle", "Tick", "PineSwingOBEngine", "PaperBroker"]</code></pre>
+  <p>
+    این چهار نام — <code>BotConfig</code>، <code>Candle</code>/<code>Tick</code>،
+    <code>PineSwingOBEngine</code> و <code>PaperBroker</code> — تقریباً کل داستان این پروژه‌اند:
+    یک پیکربندی، دو نوع دادهٔ ورودی، یک موتور تشخیص ساختار، و یک بروکر کاغذی که تصمیم می‌گیرد.
+    این چهار اسم را در فصل‌های بعد بارها می‌بینید.
+  </p>
+
+  <div class="callout warn">
+    <span class="callout-tag">هشدار</span>
+    خودِ ماژول‌های داخلی پکیج (مثل <code>paper.py</code>) از <code>pine_ob_bot/__init__.py</code>
+    import نمی‌کنند؛ همه مستقیم از زیرماژول مقصد import می‌کنند (مثلاً
+    <code>from .config import BotConfig</code>). یعنی <code>__init__.py</code> فقط برای مصرف‌کنندگان
+    <em>بیرونیِ</em> پکیج طراحی شده، نه برای استفادهٔ داخلی خودِ پکیج.
+  </div>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>باز کردن <code>config/settings.py</code> یا <code>backtest/engine.py</code> ریشهٔ ریپو با این تصور که همان کدی است که این ژورنال توضیح می‌دهد — نیست؛ پروژهٔ دیگری است.</li>
+    <li>فکر کردن به این پروژه به‌عنوان یک «ربات معاملهٔ واقعی» — در حالت پیش‌فرض هیچ سفارشی، حتی روی حساب دمو، ارسال نمی‌شود.</li>
+    <li>تصور اینکه <code>pine_ob_bot</code> کاملاً self-contained است — دو نقطهٔ وابستگی به پروژهٔ دیگر (بالا) را فراموش نکنید.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین ۱ (ساده)</h4>
+    <p>فایل <code>pine_ob_bot/__init__.py</code> را باز کنید و لیست <code>__all__</code> را پیدا کنید. حدس بزنید هرکدام از این چهار کلاس/تابع چه نقشی دارند، بدون خواندن کد آن‌ها — سپس در فصل‌های ۴، ۵، ۶ و ۱۰ حدس‌تان را بررسی کنید.</p>
+    <details>
+      <summary>راهنما</summary>
+      <p class="hint">به نام‌ها دقت کنید: «Config» معمولاً یعنی تنظیمات؛ «Candle/Tick» یعنی داده؛ «Engine» یعنی پردازش‌گر؛ «Broker» یعنی کسی که سفارش می‌گیرد و اجرا می‌کند.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <h4>تمرین ۲ (متوسط)</h4>
+    <p>در <code>pine_ob_bot/historical.py</code> خط import مربوط به <code>data.loader</code> را پیدا کنید. بدون اجرای کد، توضیح دهید چرا اجرای بک‌تست <code>pine_ob_bot</code> بدون در دسترس‌بودن پروژهٔ ریشهٔ دیگر (پوشهٔ <code>data/</code>) ممکن است شکست بخورد.</p>
+    <details>
+      <summary>راهنما</summary>
+      <p class="hint">import در بالای فایل زمان بارگذاری ماژول اجرا می‌شود، نه فقط زمان فراخوانی تابع — اگر پکیج <code>data</code> در مسیر پایتون نباشد، خودِ import شکست می‌خورد.</p>
+    </details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا <code>pine_ob_bot</code> «Paper Trader» نامیده می‌شود و چه تفاوتی با یک ربات معاملهٔ واقعی دارد؟</li>
+    <li>دو نقطه‌ای که <code>pine_ob_bot</code> به پروژهٔ دیگر ریشهٔ ریپو وابسته است را نام ببرید.</li>
+    <li>چهار نام صادرشده در <code>__all__</code> پکیج چیستند و هرکدام تقریباً چه نقشی دارند؟</li>
+    <li>سه «راه ورود» به منطق یکسان پروژه کدام‌اند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>pine_ob_bot</code> یک شبیه‌ساز معاملهٔ کاغذیِ فقط‌خواندنی است که منطق SMC یک اندیکاتور Pine
+    را در پایتون بازتولید می‌کند، به‌صورت زنده یا بک‌تست اجرا می‌شود، و در دو نقطهٔ مشخص به یک پروژهٔ
+    مستقل دیگر در همین ریپو وابسته است. از فصل ۲ به بعد وارد جزئیات معماری داخلی آن می‌شویم.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="00_index.html"><span class="dir">→ فصل قبل</span>فهرست</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="02_architecture.html"><span class="dir">فصل بعد ←</span>معماری و ماژول‌ها</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>
