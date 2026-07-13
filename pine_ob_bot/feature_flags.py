@@ -86,7 +86,8 @@ FEATURE_FLAGS: dict[str, dict] = {
         "requires": ["entry_mode=sweep_reclaim", "tick data"],
         "detail_fields": ["m1_assist_mode", "m1_reclaim_max_bars",
                           "m1_max_confirmations_per_ob", "m1_entry_expiry_bars",
-                          "m1_require_closed_bar", "m1_use_sequence_validation"]},
+                          "m1_require_closed_bar", "m1_use_sequence_validation",
+                          "m1_max_lead_minutes", "m1_risk_multiplier"]},
     "m1_refine_stop": {
         "cli": "--m1-refine-stop", "default": False, "category": "risk",
         "status": "experimental",

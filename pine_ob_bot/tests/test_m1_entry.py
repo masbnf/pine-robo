@@ -46,7 +46,7 @@ def make_broker(direction="bull", equity=10_000.0, **overrides):
 
 
 def seed(broker, direction="bull", order_id="o1", ob_id="ob1",
-         break_kind="BOS", strong=False):
+         break_kind="BOS", strong=False, created_time="t0"):
     if direction == "bull":
         entry, stop, target = 100.0, 95.0, 107.5
     else:
@@ -56,7 +56,7 @@ def seed(broker, direction="bull", order_id="o1", ob_id="ob1",
     if strong:
         meta["bos_displacement_top_quartile"] = True
     order = PendingOrder(order_id, ob_id, direction, entry, stop, target,
-                         0, "t0", True, meta, "armed")
+                         0, created_time, True, meta, "armed")
     broker.pending.append(order)
     broker.m1.register_setup(order)
     return order
@@ -212,6 +212,110 @@ def test_refined_stop_recorded_tighter_or_wider_than_m5():
     broker2.process_m1_candle(m1("t1", *BULL_SWEEP_RECLAIM))
     assert order2.meta["m1_stop_refined"] is True
     assert order2.stop < 94.8                             # wider than M5 rule
+
+
+def test_lead_gate_rejects_confirmation_over_limit():
+    broker = make_broker(m1_max_lead_minutes=15.0)
+    order = seed(broker, created_time="2026-04-10T10:00:00+00:00")
+    broker.process_m1_candle(m1("2026-04-10T10:20:00+00:00", *BULL_SWEEP_RECLAIM))
+    assert not order.meta.get("sweep_reclaim_confirmed")
+    assert "m1_event_id" not in order.meta
+    assert broker.stats["m1_rejected_lead_too_long"] == 1
+    assert broker.stats["m1_confirmations_total"] == 0
+    assert broker.m1.ob_confirmations.get("ob1", 0) == 0    # cap not consumed
+    assert not broker.m1.used_event_ids                     # event id not consumed
+    # the untouched M5 fallback can still confirm/fill this setup later
+    broker.process_signal_candle(Candle("T1", 101.0, 101.5, 99.0, 101.0), 1)
+    assert order.meta.get("entry_trigger") == "m5_sweep_reclaim"
+
+
+def test_lead_gate_accepts_confirmation_under_limit():
+    broker = make_broker(m1_max_lead_minutes=30.0)
+    order = seed(broker, created_time="2026-04-10T10:00:00+00:00")
+    broker.process_m1_candle(m1("2026-04-10T10:20:00+00:00", *BULL_SWEEP_RECLAIM))
+    assert order.meta.get("sweep_reclaim_confirmed")
+    assert order.meta["entry_trigger"] == "m1_sweep_reclaim"
+    assert order.meta["m1_setup_to_confirm_minutes"] == 20.0
+    assert broker.stats["m1_rejected_lead_too_long"] == 0
+    assert broker.stats["m1_confirmations_total"] == 1
+
+
+def test_lead_gate_only_effective_in_entry_mode():
+    cfg = BotConfig(entry_mode="sweep_reclaim", m1_entry_assist=True,
+                    m1_assist_mode="shadow", m1_max_lead_minutes=5.0)
+    broker = PaperBroker(cfg, 10_000.0)
+    broker.update_m5_trend(TrendDirection.BULLISH, "t0")
+    seed(broker, created_time="2026-04-10T10:00:00+00:00")
+    broker.process_m1_candle(m1("2026-04-10T10:20:00+00:00", *BULL_SWEEP_RECLAIM))
+    # shadow mode is observe-only: the gate must never reject a shadow entry.
+    assert broker.stats["m1_rejected_lead_too_long"] == 0
+    assert broker.stats["m1_confirmations_shadow"] == 1
+
+
+def test_risk_multiplier_shrinks_m1_fill_risk_only():
+    m1_broker = make_broker(m1_risk_multiplier=0.5)
+    m1_order = seed(m1_broker)
+    m1_broker.process_m1_candle(m1("t1", *BULL_SWEEP_RECLAIM))
+    m1_broker.process_tick(Tick("tt1", 100.5, 100.55))
+    assert len(m1_broker.positions) == 1
+    m1_position = m1_broker.positions[0]
+    assert m1_position.meta["m1_risk_multiplier"] == 0.5
+    assert abs(m1_position.meta["applied_risk_fraction"] -
+              m1_broker.cfg.risk_fraction * 0.5) < 1e-9
+
+    baseline_broker = make_broker()
+    baseline_order = seed(baseline_broker)
+    baseline_broker.process_m1_candle(m1("t1", *BULL_SWEEP_RECLAIM))
+    baseline_broker.process_tick(Tick("tt1", 100.5, 100.55))
+    baseline_position = baseline_broker.positions[0]
+    assert baseline_position.meta["m1_risk_multiplier"] == 1.0
+    assert m1_position.volume < baseline_position.volume
+    assert m1_position.risk_money < baseline_position.risk_money
+
+
+def test_risk_multiplier_does_not_affect_m5_fallback_fill():
+    broker = make_broker(m1_entry_expiry_bars=2, m1_risk_multiplier=0.5)
+    order = seed(broker)
+    broker.process_m1_candle(m1("t1", *BULL_SWEEP_RECLAIM))
+    broker.process_m1_candle(m1("t2", 100.4, 100.9, 100.3, 100.8))
+    broker.process_m1_candle(m1("t3", 100.4, 100.9, 100.3, 100.8))    # expires
+    assert "entry_trigger" not in order.meta
+    broker.process_signal_candle(Candle("T1", 101.0, 101.5, 99.0, 101.0), 1)
+    assert order.meta["entry_trigger"] == "m5_sweep_reclaim"
+    broker.process_tick(Tick("tt1", 100.5, 100.55))
+    assert len(broker.positions) == 1
+    position = broker.positions[0]
+    assert position.meta["m1_risk_multiplier"] == 1.0
+    assert abs(position.meta["applied_risk_fraction"] - broker.cfg.risk_fraction) < 1e-9
+
+
+def test_risk_multiplier_interacts_with_portfolio_cap_after_shrink():
+    # Unmultiplied, two 1% fills would project to 2% and the second would be
+    # rejected by a 1.25% cap (mirrors test_portfolio_risk.py's pattern).
+    # With m1_risk_multiplier=0.5 both fills are sized at 0.5% each, so the
+    # projection the cap sees is 1.0% total -- i.e. the cap evaluates risk
+    # AFTER the multiplier, not the raw pre-multiplier risk_fraction.
+    cfg = BotConfig(entry_mode="sweep_reclaim", risk_fraction=0.01,
+                    m1_entry_assist=True, m1_assist_mode="entry",
+                    m1_risk_multiplier=0.5, portfolio_risk_cap=0.0125,
+                    max_open_positions=2)
+    broker = PaperBroker(cfg, 10_000.0)
+    broker.update_m5_trend(TrendDirection.BULLISH, "t0")
+
+    def m1_confirmed_order(order_id, ob_id):
+        return PendingOrder(order_id, ob_id, "bull", 100.0, 95.0, 107.5, 0, "t0",
+                            True, {"break_kind": "BOS", "atr_at_formation": 1.0,
+                                   "sweep_reclaim_confirmed": True,
+                                   "entry_trigger": "m1_sweep_reclaim"}, "armed")
+
+    broker.pending.extend([m1_confirmed_order("a", "ob_a"),
+                           m1_confirmed_order("b", "ob_b")])
+    broker.process_tick(Tick("tt1", 99.98, 100.0))
+    assert len(broker.positions) == 2
+    first, second = broker.positions
+    assert abs(first.meta["applied_risk_fraction"] - 0.005) < 1e-9
+    assert abs(second.meta["projected_open_risk_fraction"] - 0.01) < 1e-9
+    assert broker.stats["rejected_portfolio_risk_cap"] == 0
 
 
 if __name__ == "__main__":

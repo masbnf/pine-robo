@@ -170,6 +170,19 @@ class BotConfig:
     # entry and stop effects are never mixed. Default OFF.
     m1_refine_stop: bool = False
     m1_stop_atr_buffer: float = 0.20
+    # Live-decision-safe lead-time gate (separate from the retrospective,
+    # post-hoc m1_lead_minutes counterfactual computed in on_m5_close, which
+    # is only known AFTER the M5 candle that would have confirmed the same
+    # setup and therefore cannot gate a live decision). m1_max_lead_minutes
+    # rejects an "entry"-mode M1 confirmation whose m1_setup_to_confirm_minutes
+    # (M5 setup creation -> M1 confirmation, known at confirm time) exceeds
+    # the limit. None = no cap (legacy). Requires m1_entry_assist.
+    m1_max_lead_minutes: float | None = None
+    # Shrinks the risk fraction (and therefore volume) of a fill whose
+    # entry_trigger == "m1_sweep_reclaim", applied AFTER the base risk model
+    # selects risk_fraction (never bypasses the risk models). 1.0 (default)
+    # is a no-op. Only meaningful in m1_assist_mode="entry".
+    m1_risk_multiplier: float = 1.0
     entry_lifecycle_enabled: bool = False
     poll_seconds: float = 1.0
     fallback_spread: float = 0.20
@@ -304,6 +317,16 @@ class BotConfig:
             raise ValueError("m1_refine_stop requires m1_entry_assist")
         if self.m1_stop_atr_buffer < 0:
             raise ValueError("m1_stop_atr_buffer cannot be negative")
+        if self.m1_max_lead_minutes is not None and self.m1_max_lead_minutes <= 0:
+            raise ValueError("m1_max_lead_minutes must be positive or None")
+        if self.m1_max_lead_minutes is not None and not self.m1_entry_assist:
+            raise ValueError("m1_max_lead_minutes requires m1_entry_assist")
+        if not 0 < self.m1_risk_multiplier <= 1:
+            raise ValueError("m1_risk_multiplier must be in (0, 1]")
+        if self.m1_risk_multiplier != 1.0 and not (
+                self.m1_entry_assist and self.m1_assist_mode == "entry"):
+            raise ValueError(
+                "m1_risk_multiplier requires m1_entry_assist and m1_assist_mode='entry'")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
         # Values above 1 mean "burst fill": while the broker is flat, up to

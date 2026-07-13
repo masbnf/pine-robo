@@ -210,6 +210,11 @@ def _m1_summary(cfg, stats: dict) -> dict:
         "m1_fill_conversion_rate": (
             round(stats.get("m1_confirmations_filled", 0) / confirmations, 4)
             if confirmations else None),
+        "m1_avg_setup_to_confirm_minutes": (
+            round(stats.get("m1_setup_to_confirm_minutes_sum", 0.0) / confirmations, 3)
+            if confirmations else None),
+        "m1_max_setup_to_confirm_minutes": stats.get("m1_max_setup_to_confirm_minutes", 0.0),
+        "m1_rejected_lead_too_long": stats.get("m1_rejected_lead_too_long", 0),
     }
 
 
@@ -242,6 +247,10 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                      "m1_lead_bucket": _bucket(item.get("m1_lead_minutes"),
                                                [(1, "<1m"), (3, "1-3m"),
                                                 (5, "3-5m"), (math.inf, "5m+")]),
+                     "m1_setup_to_confirm_bucket": _bucket(
+                         item.get("m1_setup_to_confirm_minutes"),
+                         [(15, "<15m"), (30, "15-30m"),
+                          (60, "30-60m"), (math.inf, "60m+")]),
                      "entry_spread_bucket": _bucket(item.get("entry_execution_spread"),
                                                      [(0.1, "<0.10"), (0.2, "0.10-0.20"),
                                                       (0.4, "0.20-0.40"),
@@ -268,8 +277,8 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
     # M1 Entry Assist dimensions: M5 vs M1 entries, unique-vs-early M1,
     # M1 reclaim lag, M1 lead time, sequence status and spread buckets.
     fields.extend(["entry_timeframe", "entry_trigger", "m1_unique_vs_m5",
-                   "m1_lag_bucket", "m1_lead_bucket", "m1_sequence_status",
-                   "entry_spread_bucket"])
+                   "m1_lag_bucket", "m1_lead_bucket", "m1_setup_to_confirm_bucket",
+                   "m1_sequence_status", "entry_spread_bucket"])
     output = []
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -416,6 +425,7 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                             "projected_open_risk_fraction",
                             "entry_timeframe", "entry_trigger",
                             "m1_reclaim_lag_bars", "m1_lead_minutes",
+                            "m1_setup_to_confirm_minutes", "m1_risk_multiplier",
                             "m1_unique_vs_m5", "m1_sequence_status",
                             "entry_execution_source", "entry_execution_spread",
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",

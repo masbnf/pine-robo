@@ -48,6 +48,8 @@ M1_FIELDS = (
     "m1_sequence_valid", "m1_sequence_invalid", "m1_sequence_ambiguous",
     "m1_rejected_confirmation_cap", "m1_rejected_reclaim_too_late",
     "m1_total_r", "m1_wins", "m1_losses", "m1_profit_factor",
+    "m1_rejected_lead_too_long", "m1_avg_setup_to_confirm_minutes",
+    "m1_max_setup_to_confirm_minutes",
 )
 
 DELTA_METRICS = ("trades", "total_r", "profit_factor", "win_rate",

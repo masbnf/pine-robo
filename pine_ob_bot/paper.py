@@ -1556,6 +1556,17 @@ class PaperBroker:
         if (order.meta.get("break_kind") == "CHoCH" and
                 self.cfg.choch_risk_cap_fraction is not None):
             risk_fraction = min(risk_fraction, self.cfg.choch_risk_cap_fraction)
+        # M1 risk multiplier (flag-gated, default 1.0 = no-op): applied AFTER
+        # the base risk model above has picked risk_fraction, never bypassing
+        # it, and only for fills triggered by an M1 confirmation. Sizing and
+        # therefore the portfolio-risk-cap projection below both see the
+        # already-shrunk risk, since both read risk_fraction/actual_risk
+        # computed from it.
+        m1_risk_multiplier_applied = 1.0
+        if (self.cfg.m1_risk_multiplier != 1.0 and
+                order.meta.get("entry_trigger") == "m1_sweep_reclaim"):
+            risk_fraction *= self.cfg.m1_risk_multiplier
+            m1_risk_multiplier_applied = self.cfg.m1_risk_multiplier
         distance = abs(fill - stop)
         sizing = calculate_safe_position_size(
             equity=self.equity,
@@ -1694,6 +1705,7 @@ class PaperBroker:
                                   "target_source": target_source,
                                   "planned_rr": abs(target - fill) / distance,
                                   "applied_risk_fraction": risk_fraction,
+                                  "m1_risk_multiplier": m1_risk_multiplier_applied,
                                   "allowed_risk": sizing.allowed_risk,
                                   "choch_risk_cap_fraction": self.cfg.choch_risk_cap_fraction,
                                   "context_risk_score": context_score

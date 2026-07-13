@@ -138,6 +138,16 @@ def add_experimental_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--m1-stop-atr-buffer", type=float, default=None, metavar="FLOAT",
                        help="ATR buffer behind the M1 sweep extreme "
                             "(default 0.20; requires --m1-refine-stop)")
+    group.add_argument("--m1-max-lead-minutes", type=float, default=None, metavar="FLOAT",
+                       help="reject an 'entry'-mode M1 confirmation whose time since "
+                            "the M5 setup was created exceeds this many minutes "
+                            "(live-decision-safe; default: no cap; requires "
+                            "--m1-entry-assist)")
+    group.add_argument("--m1-risk-multiplier", type=float, default=None, metavar="FLOAT",
+                       help="shrink the risk fraction/volume of fills triggered by an "
+                            "M1 confirmation by this factor, applied after the base "
+                            "risk model is selected; must be in (0, 1] (default 1.0 "
+                            "= no-op; requires --m1-entry-assist --m1-assist-mode entry)")
 
 
 def validate_experimental_args(parser: argparse.ArgumentParser,
@@ -199,7 +209,9 @@ def validate_experimental_args(parser: argparse.ArgumentParser,
                            ("m1_entry_expiry_bars", "--m1-entry-expiry-bars"),
                            ("m1_require_closed_bar", "--[no-]m1-require-closed-bar"),
                            ("m1_use_sequence_validation",
-                            "--[no-]m1-use-sequence-validation")):
+                            "--[no-]m1-use-sequence-validation"),
+                           ("m1_max_lead_minutes", "--m1-max-lead-minutes"),
+                           ("m1_risk_multiplier", "--m1-risk-multiplier")):
             if getattr(args, dest) is not None:
                 parser.error(f"{flag} requires --m1-entry-assist")
         if args.m1_refine_stop:
@@ -217,6 +229,13 @@ def validate_experimental_args(parser: argparse.ArgumentParser,
             parser.error("--m1-max-confirmations-per-ob must be at least 1")
         if args.m1_entry_expiry_bars is not None and args.m1_entry_expiry_bars < 1:
             parser.error("--m1-entry-expiry-bars must be at least 1")
+        if args.m1_max_lead_minutes is not None and args.m1_max_lead_minutes <= 0:
+            parser.error("--m1-max-lead-minutes must be positive")
+        if args.m1_risk_multiplier is not None:
+            if args.m1_assist_mode != "entry":
+                parser.error("--m1-risk-multiplier requires --m1-assist-mode entry")
+            if not 0 < args.m1_risk_multiplier <= 1:
+                parser.error("--m1-risk-multiplier must be in (0, 1]")
     if args.m1_stop_atr_buffer is not None and not args.m1_refine_stop:
         parser.error("--m1-stop-atr-buffer requires --m1-refine-stop")
     if args.m1_stop_atr_buffer is not None and args.m1_stop_atr_buffer < 0:
@@ -276,6 +295,9 @@ def resolve_experimental_config(args: argparse.Namespace) -> dict:
         if args.m1_refine_stop:
             kwargs["m1_stop_atr_buffer"] = (
                 args.m1_stop_atr_buffer if args.m1_stop_atr_buffer is not None else 0.20)
+        kwargs["m1_max_lead_minutes"] = args.m1_max_lead_minutes
+        kwargs["m1_risk_multiplier"] = (
+            args.m1_risk_multiplier if args.m1_risk_multiplier is not None else 1.0)
     return kwargs
 
 
@@ -311,6 +333,10 @@ def experimental_label_tokens(args: argparse.Namespace, resolved: dict) -> list[
             tokens.append(f"m1r{resolved.get('m1_reclaim_max_bars', 3)}")
         if resolved.get("m1_refine_stop"):
             tokens.append("m1rs")
+        if resolved.get("m1_max_lead_minutes") is not None:
+            tokens.append(f"m1lead{int(resolved['m1_max_lead_minutes'])}")
+        if resolved.get("m1_risk_multiplier", 1.0) != 1.0:
+            tokens.append("m1risk" + f"{resolved['m1_risk_multiplier']:g}".replace(".", ""))
     if args.max_positions > 1:
         tokens.append(f"pos{args.max_positions}")
     if resolved.get("portfolio_risk_cap") is not None:

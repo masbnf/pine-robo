@@ -39,6 +39,16 @@ INVALID = (
     [*M1_BASE, "--m1-max-confirmations-per-ob", "0"],
     [*M1_BASE, "--m1-entry-expiry-bars", "0"],
     [*M1_BASE, "--m1-stop-atr-buffer", "0.2"],            # buffer w/o refine-stop
+    ["--m1-max-lead-minutes", "30"],                      # without master
+    ["--m1-risk-multiplier", "0.5"],                      # without master
+    [*M1_BASE, "--m1-max-lead-minutes", "0"],
+    [*M1_BASE, "--m1-max-lead-minutes", "-5"],
+    [*M1_BASE, "--m1-risk-multiplier", "0.5"],            # entry mode not given (shadow default)
+    [*M1_BASE, "--m1-assist-mode", "shadow", "--m1-risk-multiplier", "0.5"],
+    [*M1_BASE, "--m1-assist-mode", "sequence", "--m1-risk-multiplier", "0.5"],
+    [*M1_BASE, "--m1-assist-mode", "entry", "--m1-risk-multiplier", "0"],
+    [*M1_BASE, "--m1-assist-mode", "entry", "--m1-risk-multiplier", "1.5"],
+    [*M1_BASE, "--m1-assist-mode", "entry", "--m1-risk-multiplier", "-0.5"],
 )
 
 
@@ -78,6 +88,34 @@ class M1CliValidationTests(unittest.TestCase):
         self.assertTrue(resolved["m1_require_closed_bar"])
         self.assertTrue(resolved["m1_use_sequence_validation"])
         BotConfig(**resolved, entry_mode="sweep_reclaim").validate()
+
+    def test_lead_and_risk_multiplier_resolve_and_label(self):
+        for lead, risk, lead_token, risk_token in (
+                (15, 0.5, "m1lead15", "m1risk05"),
+                (30, 0.25, "m1lead30", "m1risk025"),
+                (60, None, "m1lead60", None)):
+            extra = [*M1_BASE, "--m1-assist-mode", "entry",
+                    "--m1-max-lead-minutes", str(lead)]
+            if risk is not None:
+                extra += ["--m1-risk-multiplier", str(risk)]
+            parser, args = _parse(tick_cli, *extra)
+            validate_experimental_args(parser, args)
+            resolved = resolve_experimental_config(args)
+            self.assertEqual(resolved["m1_max_lead_minutes"], float(lead))
+            self.assertEqual(resolved["m1_risk_multiplier"], risk if risk is not None else 1.0)
+            BotConfig(**resolved, entry_mode="sweep_reclaim").validate()
+            tokens = experimental_label_tokens(args, resolved)
+            label = build_run_label("XAUUSD_all_t9_p3x3", tokens, resolved, max_length=200)
+            self.assertIn(lead_token, label)
+            if risk_token is not None:
+                self.assertIn(risk_token, label)
+
+    def test_lead_without_risk_multiplier_defaults_to_noop(self):
+        parser, args = _parse(tick_cli, *M1_BASE, "--m1-max-lead-minutes", "45")
+        validate_experimental_args(parser, args)
+        resolved = resolve_experimental_config(args)
+        self.assertEqual(resolved["m1_max_lead_minutes"], 45.0)
+        self.assertEqual(resolved["m1_risk_multiplier"], 1.0)
 
     def test_run_label_tokens_for_all_modes(self):
         for mode, token in (("shadow", "m1shadow"), ("sequence", "m1seq"),

@@ -60,7 +60,7 @@ _CONFIRM_META_KEYS = (
     "m1_reclaim_time", "m1_reclaim_index", "m1_reclaim_close",
     "m1_reclaim_lag_bars", "m1_confirmation_time", "m1_confirmation_bid",
     "m1_confirmation_ask", "m1_spread_at_confirmation", "m1_stop_refined",
-    "reclaim_close",
+    "reclaim_close", "m1_setup_to_confirm_minutes",
 )
 
 
@@ -79,7 +79,7 @@ def m1_stats_defaults() -> dict:
         "m1_rejected_ob_invalid", "m1_rejected_break_kind",
         "m1_rejected_no_fresh_sweep", "m1_rejected_reclaim_before_sweep",
         "m1_rejected_reclaim_too_late", "m1_rejected_duplicate",
-        "m1_rejected_confirmation_cap",
+        "m1_rejected_confirmation_cap", "m1_rejected_lead_too_long",
         "m1_rejected_position_limit", "m1_rejected_portfolio_risk",
         "m1_rejected_spread", "m1_rejected_sizing",
         "m1_cancelled_trend_change", "m1_cancelled_ob_invalid",
@@ -98,7 +98,9 @@ def m1_stats_defaults() -> dict:
     out.update({"m1_total_r": 0.0, "m1_shadow_total_r": 0.0,
                 "m1_gross_win_r": 0.0, "m1_gross_loss_r": 0.0,
                 "m1_lead_minutes_sum": 0.0, "m1_max_lead_minutes": 0.0,
-                "m1_reclaim_lag_sum_bars": 0})
+                "m1_reclaim_lag_sum_bars": 0,
+                "m1_setup_to_confirm_minutes_sum": 0.0,
+                "m1_max_setup_to_confirm_minutes": 0.0})
     return out
 
 
@@ -245,6 +247,12 @@ class M1AssistEngine:
         reason = None
         trend_check = validate_trade_direction(record["direction"],
                                                self.broker.current_m5_trend)
+        # Live-decision-safe lead: time from the M5 setup's own creation to
+        # THIS M1 confirmation bar. Unlike m1_lead_minutes (retrospective,
+        # only known once/if the M5 candle later confirms the same setup in
+        # on_m5_close), this is available right now and safe to gate on.
+        lead_minutes = _minutes_between(record.get("m5_setup_confirmed_time"),
+                                        bar.time)
         if order.meta.get("sweep_reclaim_confirmed"):
             reason = "m5_already_confirmed"
         elif order.lifecycle_state != "armed":
@@ -261,6 +269,13 @@ class M1AssistEngine:
         elif not self._break_kind_eligible(record):
             stats["m1_rejected_break_kind"] += 1
             reason = "break_kind"
+        elif (self.cfg.m1_assist_mode == "entry" and
+              self.cfg.m1_max_lead_minutes is not None and
+              lead_minutes is not None and
+              lead_minutes > self.cfg.m1_max_lead_minutes):
+            # Real effect only in entry mode -- shadow stays observe-only.
+            stats["m1_rejected_lead_too_long"] += 1
+            reason = "lead_too_long"
         shadow = self.cfg.m1_assist_mode == "shadow"
         ids = self.shadow_used_event_ids if shadow else self.used_event_ids
         caps = self.shadow_ob_confirmations if shadow else self.ob_confirmations
@@ -285,6 +300,11 @@ class M1AssistEngine:
         stats["m1_confirmations_total"] += 1
         stats["m1_reclaim_lag_sum_bars"] += lag
         stats["m1_setups_eligible"] += 1
+        if lead_minutes is not None:
+            stats["m1_setup_to_confirm_minutes_sum"] = round(
+                stats["m1_setup_to_confirm_minutes_sum"] + lead_minutes, 3)
+            stats["m1_max_setup_to_confirm_minutes"] = max(
+                stats["m1_max_setup_to_confirm_minutes"], lead_minutes)
         if self.cfg.m1_assist_mode == "shadow":
             self._open_shadow(record, bar, event_id, lag)
             record["state"] = "idle"     # real setup stays untouched/unconsumed
@@ -317,6 +337,7 @@ class M1AssistEngine:
             "reclaim_close": bar.close,
             "sweep_reclaim_atr_buffer": self.cfg.sweep_reclaim_atr_buffer,
             "entry_mode": "sweep_reclaim",
+            "m1_setup_to_confirm_minutes": lead_minutes,
         })
         record.update({"state": "confirmed_waiting_fill",
                        "confirmed_at_m1_index": index,
