@@ -10,11 +10,12 @@ from typing import Iterable
 from .config import BotConfig
 from .entry_pivot import ClassicEntryPivotDetector
 from .liquidity_context import LiquidityTracker
+from .m1 import M1Builder
 from .models import Candle, Tick
 from .mtf_context import M15Context
 from .paper import PaperBroker, SymbolSpec
 from .pine_engine import PineSwingOBEngine
-from .reporting import export_breakdown, export_html, export_reports
+from .reporting import export_breakdown, export_html, export_reports, experimental_summary
 from .structure_context import ChochContext, DisplacementContext, displacement_snapshot
 from .trend_filter import trend_from_engine_state
 
@@ -80,7 +81,8 @@ class M5Builder:
 
 
 def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float,
-                        output_root: Path, label: str, warmup_bars: int = 500) -> dict:
+                        output_root: Path, label: str, warmup_bars: int = 500,
+                        decision_log: bool = False, m1_debug: bool = False) -> dict:
     broker = PaperBroker(cfg, initial_equity, SymbolSpec())
     broker.enable_entry_pivot_gate()
     engine = PineSwingOBEngine(cfg)
@@ -99,9 +101,13 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
 
     def close_bar(candle: Candle) -> None:
         nonlocal trading_started
+        # Same candle-driven state advance as PaperApp.on_closed_candle: sets
+        # market_index, advances the optional lifecycle AND confirms pending
+        # sweep_reclaim orders. Running it before this candle's own freshly
+        # formed OBs are added means it can only confirm pre-existing orders,
+        # so no look-ahead is introduced -- identical ordering to Live.
         index = len(engine.candles)
-        broker.market_index = index
-        broker._advance_lifecycle(candle, index)
+        broker.process_signal_candle(candle, index)
         m15_bar = m15.process_m5(candle)
         liq_m5.process(candle)
         if m15_bar:
@@ -147,7 +153,27 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
             broker.pending.clear()
             trading_started = True
 
+    # M1 Entry Assist: the aggregator only exists when the flag is on, so a
+    # baseline run has literally zero M1 overhead and is bit-identical.
+    m1_builder = M1Builder() if cfg.m1_entry_assist else None
+    if broker.m1 is not None:
+        broker.m1.debug = m1_debug
+
     for tick in iter_ticks(paths):
+        # Documented M5-boundary ordering (prevents look-ahead): the tick
+        # that opens a new bucket FIRST closes the final M1 of the old M5
+        # window, which is processed while only pre-existing setups exist;
+        # THEN the M5 closes and may create new setups, whose
+        # first_eligible_m1_index points at the NEXT M1 -- so an M1 that
+        # closed inside the creating M5 candle can never confirm it.
+        if m1_builder is not None:
+            gaps_before = m1_builder.counters["m1_tick_gaps"]
+            closed_m1 = m1_builder.push(tick)
+            if closed_m1 is not None:
+                broker.process_m1_candle(closed_m1)
+            if (broker.m1 is not None and
+                    m1_builder.counters["m1_tick_gaps"] > gaps_before):
+                broker.m1.note_window_gap()
         closed = builder.push(tick)
         if closed:
             close_bar(closed)
@@ -156,9 +182,31 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
         else:
             broker._observe_spread(max(0.0, tick.ask - tick.bid))
         ticks += 1
+    if m1_builder is not None:
+        for key, value in m1_builder.counters.items():
+            broker.stats[key] = value
 
     output_root.mkdir(parents=True, exist_ok=True)
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in label)
+    # Structured event log: M1 decision events always (when the engine ran);
+    # --decision-log adds the core trend/pivot/sizing decision streams.
+    events: list[dict] = []
+    if broker.m1 is not None:
+        events.extend(broker.m1.decision_events)
+        for shadow_event in broker.m1.shadow_events:
+            events.append({"event": "m1_shadow_trade_closed", "level": "INFO",
+                           "feature": "m1_entry_assist", **shadow_event})
+    if decision_log:
+        for event in broker.trend_events:
+            events.append({"level": "DECISION", "feature": "core", **event})
+        for event in broker.pivot_events:
+            events.append({"level": "INFO", "feature": "core", **event})
+        for event in broker.rejected_sizing:
+            events.append({"event": "order_rejected_sizing", "level": "DECISION",
+                           "feature": "core", **event})
+    if events:
+        from .feature_flags import write_events_jsonl
+        write_events_jsonl(output_root / f"tick_{safe}_events.jsonl", events)
     summary = export_reports(broker, output_root / f"tick_{safe}_trades.csv",
                              output_root / f"tick_{safe}_summary.csv")
     export_breakdown(broker, output_root / f"tick_{safe}_breakdown.csv")
@@ -167,7 +215,15 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
                 {"source files": len(paths), "ticks": ticks, "closed M5": len(engine.candles),
                  "warmup bars": warmup_bars, "trend swing": cfg.trend_swing_length,
                  "entry pivot": f"{cfg.entry_pivot_left}/{cfg.entry_pivot_right}", "RR": cfg.rr,
-                 "breaks": "+".join(cfg.allowed_break_kinds)})
+                 "breaks": "+".join(cfg.allowed_break_kinds),
+                 "max entry pivot age": cfg.max_entry_pivot_age_bars,
+                 "sweep window bars": cfg.sweep_reclaim_max_bars,
+                 "controlled revival": cfg.controlled_revival,
+                 "ob re-entry": cfg.allow_ob_reentry,
+                 "spread wait": cfg.wait_for_spread_after_confirmation,
+                 "max positions": cfg.max_open_positions,
+                 "portfolio risk cap": cfg.portfolio_risk_cap})
+    summary.update(experimental_summary(broker))
     summary.update({"ticks": ticks, "bars": len(engine.candles), "files": len(paths),
                     "warmup_bars": warmup_bars,
                     "trend_swing_length": cfg.trend_swing_length,
@@ -176,4 +232,10 @@ def run_tick_historical(paths: list[Path], cfg: BotConfig, initial_equity: float
                     "buy_setups": broker.stats.get("buy_setups_created", 0),
                     "sell_setups": broker.stats.get("sell_setups_created", 0),
                     **broker.stats})
+    age_samples = broker.stats.get("entry_pivot_age_samples", 0)
+    summary["avg_entry_pivot_age_bars"] = (
+        round(broker.stats.get("entry_pivot_age_sum_bars", 0) / age_samples, 2)
+        if age_samples else None)
+    summary["max_entry_pivot_age_seen"] = (
+        broker.stats.get("entry_pivot_age_max_bars", 0) if age_samples else None)
     return summary

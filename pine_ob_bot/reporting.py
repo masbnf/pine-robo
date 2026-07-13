@@ -138,6 +138,86 @@ def export_reports(broker: PaperBroker, trades_path: Path, summary_path: Path) -
     return summary
 
 
+def experimental_summary(broker: PaperBroker) -> dict:
+    """Config echo + derived averages for the flag-gated experiments.
+
+    Merged into both backtest runners' summaries so every run records the
+    full experimental configuration (spec: the report must contain it) and
+    the spread-wait averages. All values are well-defined with the flags
+    off (config echoes read False/None, averages read None).
+    """
+    cfg = broker.cfg
+    stats = broker.stats
+    started = stats.get("spread_wait_started", 0)
+    filled = stats.get("spread_wait_eventually_filled", 0)
+    open_risk = sum(item.risk_money for item in broker.positions)
+    return {
+        "controlled_revival": cfg.controlled_revival,
+        "revival_max_return_bars": cfg.revival_max_return_bars if cfg.controlled_revival else None,
+        "revival_require_fresh_sweep": cfg.revival_require_fresh_sweep if cfg.controlled_revival else None,
+        "revival_max_per_ob": cfg.revival_max_per_ob if cfg.controlled_revival else None,
+        "allow_ob_reentry": cfg.allow_ob_reentry,
+        "max_entries_per_ob": cfg.max_entries_per_ob if cfg.allow_ob_reentry else None,
+        "min_reentry_wait_bars": cfg.min_reentry_wait_bars if cfg.allow_ob_reentry else None,
+        "reentry_require_fresh_sweep": cfg.reentry_require_fresh_sweep if cfg.allow_ob_reentry else None,
+        "reentry_after_loss_only": cfg.reentry_after_loss_only if cfg.allow_ob_reentry else None,
+        "wait_for_spread_after_confirmation": cfg.wait_for_spread_after_confirmation,
+        "spread_wait_max_seconds": cfg.spread_wait_max_seconds,
+        "spread_wait_max_ticks": cfg.spread_wait_max_ticks,
+        "spread_wait_max_bars": cfg.spread_wait_max_bars,
+        "portfolio_risk_cap": cfg.portfolio_risk_cap,
+        "sweep_reclaim_max_bars": cfg.sweep_reclaim_max_bars,
+        "avg_spread_wait_seconds": (
+            round(stats.get("spread_wait_duration_seconds_sum", 0.0) / filled, 3)
+            if filled else None),
+        "avg_spread_at_confirmation": (
+            round(stats.get("spread_at_confirmation_sum", 0.0) / started, 5)
+            if started else None),
+        "avg_spread_at_fill": (
+            round(stats.get("spread_at_fill_sum", 0.0) / filled, 5)
+            if filled else None),
+        "current_open_risk_fraction": (
+            round(open_risk / broker.equity, 6) if broker.equity else None),
+        **_m1_summary(cfg, stats),
+    }
+
+
+def _m1_summary(cfg, stats: dict) -> dict:
+    """Computed M1 Entry Assist summaries (None-safe with the flag off)."""
+    m1_trades = stats.get("m1_wins", 0) + stats.get("m1_losses", 0)
+    confirmations = stats.get("m1_confirmations_total", 0)
+    early = stats.get("m1_confirmations_later_confirmed_by_m5", 0)
+    unique = stats.get("m1_confirmations_unique_vs_m5", 0)
+    classified = early + unique
+    gross_loss = stats.get("m1_gross_loss_r", 0.0)
+    return {
+        "m1_entry_assist": cfg.m1_entry_assist,
+        "m1_assist_mode": cfg.m1_assist_mode if cfg.m1_entry_assist else None,
+        "m1_win_rate": (round(stats.get("m1_wins", 0) / m1_trades, 4)
+                        if m1_trades else None),
+        "m1_profit_factor": (round(stats.get("m1_gross_win_r", 0.0) / gross_loss, 3)
+                             if gross_loss else None),
+        "m1_average_r": (round(stats.get("m1_total_r", 0.0) / m1_trades, 4)
+                         if m1_trades else None),
+        "m1_avg_reclaim_lag_bars": (
+            round(stats.get("m1_reclaim_lag_sum_bars", 0) / confirmations, 3)
+            if confirmations else None),
+        "m1_avg_lead_minutes": (
+            round(stats.get("m1_lead_minutes_sum", 0.0) / early, 3)
+            if early else None),
+        "m1_unique_confirmation_rate": (round(unique / classified, 4)
+                                        if classified else None),
+        "m1_fill_conversion_rate": (
+            round(stats.get("m1_confirmations_filled", 0) / confirmations, 4)
+            if confirmations else None),
+        "m1_avg_setup_to_confirm_minutes": (
+            round(stats.get("m1_setup_to_confirm_minutes_sum", 0.0) / confirmations, 3)
+            if confirmations else None),
+        "m1_max_setup_to_confirm_minutes": stats.get("m1_max_setup_to_confirm_minutes", 0.0),
+        "m1_rejected_lead_too_long": stats.get("m1_rejected_lead_too_long", 0),
+    }
+
+
 def export_breakdown(broker: PaperBroker, path: Path) -> None:
     """Write long-form diagnostic groups, convenient for Excel/pandas filters."""
     import pandas as pd
@@ -156,7 +236,25 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                                                       (2.0, "1-2"), (math.inf, "2+")]),
                      "wait_bars_bucket": _bucket(item.get("wait_bars"),
                                                   [(3, "0-2"), (7, "3-6"),
-                                                   (13, "7-12"), (math.inf, "13+")])})
+                                                   (13, "7-12"), (math.inf, "13+")]),
+                     "sweep_lag_bucket": _bucket(item.get("sweep_reclaim_lag_bars"),
+                                                  [(1, "0"), (2, "1"),
+                                                   (math.inf, "2+")]),
+                     "entry_attempt": item.get("ob_entry_attempt"),
+                     "m1_lag_bucket": _bucket(item.get("m1_reclaim_lag_bars"),
+                                              [(1, "0"), (2, "1"),
+                                               (math.inf, "2+")]),
+                     "m1_lead_bucket": _bucket(item.get("m1_lead_minutes"),
+                                               [(1, "<1m"), (3, "1-3m"),
+                                                (5, "3-5m"), (math.inf, "5m+")]),
+                     "m1_setup_to_confirm_bucket": _bucket(
+                         item.get("m1_setup_to_confirm_minutes"),
+                         [(15, "<15m"), (30, "15-30m"),
+                          (60, "30-60m"), (math.inf, "60m+")]),
+                     "entry_spread_bucket": _bucket(item.get("entry_execution_spread"),
+                                                     [(0.1, "<0.10"), (0.2, "0.10-0.20"),
+                                                      (0.4, "0.20-0.40"),
+                                                      (math.inf, "0.40+")])})
         rows.append(item)
     fields = ["direction", "break_kind", "session_utc", "entry_hour", "weekday",
               "month", "ob_width_atr_bucket", "wait_bars_bucket", "m15_trend",
@@ -169,7 +267,18 @@ def export_breakdown(broker: PaperBroker, path: Path) -> None:
                    "m5_last_choch_alignment", "fill_m5_last_choch_direction",
                    "fill_m5_last_choch_alignment", "context_risk_score"])
     fields.extend(["target_source", "bos_directional_body",
-                   "bos_displacement_top_quartile", "entry_age_top_quartile"])
+                   "bos_displacement_top_quartile", "entry_age_top_quartile",
+                   "breakeven_armed", "breakeven_exit"])
+    # Experimental trade-frequency dimensions: normal vs revival vs re-entry,
+    # first entry vs re-entry attempt, sweep lag 0/1/2+, spread waited vs
+    # immediate. Groups only materialize when the columns exist in the data.
+    fields.extend(["setup_model", "is_revival", "is_reentry", "entry_attempt",
+                   "sweep_lag_bucket", "spread_waited"])
+    # M1 Entry Assist dimensions: M5 vs M1 entries, unique-vs-early M1,
+    # M1 reclaim lag, M1 lead time, sequence status and spread buckets.
+    fields.extend(["entry_timeframe", "entry_trigger", "m1_unique_vs_m5",
+                   "m1_lag_bucket", "m1_lead_bucket", "m1_setup_to_confirm_bucket",
+                   "m1_sequence_status", "entry_spread_bucket"])
     output = []
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -238,7 +347,9 @@ def export_html(broker: PaperBroker, path: Path, title: str,
     chart = _equity_svg(trades["equity"].tolist() if not trades.empty else [broker.initial_equity])
     sections = []
     if not trades.empty:
-        ts = pd.to_datetime(trades["opened_time"], utc=True)
+        # Tick-sourced open times mix fractional and whole seconds; inferring
+        # the format from the first row makes pandas reject the other kind.
+        ts = pd.to_datetime(trades["opened_time"], utc=True, format="ISO8601")
         trades["session"] = ts.dt.hour.map(lambda h: "Asia" if h < 8 else "London" if h < 13 else "NewYork" if h < 21 else "OffHours")
         trades["weekday"] = ts.dt.day_name()
         trades["month"] = ts.dt.strftime("%Y-%m")
@@ -278,6 +389,12 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                               ("Exit execution source", "exit_execution_source"),
                               ("Demo order mirrored", "demo_order_sent"),
                               ("Target source", "target_source"),
+                              ("Breakeven armed", "breakeven_armed"),
+                              ("Breakeven exit", "breakeven_exit"),
+                              ("Setup model", "setup_model"),
+                              ("OB entry attempt", "ob_entry_attempt"),
+                              ("Sweep reclaim lag (bars)", "sweep_reclaim_lag_bars"),
+                              ("Spread waited", "spread_waited"),
                               ("BOS directional body", "bos_directional_body"),
                               ("Adaptive BOS displacement", "bos_displacement_top_quartile"),
                               ("Adaptive OB age", "entry_age_top_quartile"),
@@ -292,31 +409,45 @@ def export_html(broker: PaperBroker, path: Path, title: str,
                               ("M5 sweep depth quantiles", "liq_m5_opposite_sweep_depth_atr_quantile")):
             if column not in trades:
                 continue
-            sections.append(f"<section><h2>{label}</h2>{_html_group(trades, column)}</section>")
+            sections.append(f'<section><h2>{label}</h2><div class="table-scroll">{_html_group(trades, column)}</div></section>')
         cols = [x for x in ["opened_time", "direction", "break_kind", "entry", "stop", "target",
                             "result", "pnl", "r_multiple", "max_adverse_r", "max_favorable_r",
                             "width/ATR", "wait bars", "m15_trend", "m15_alignment",
                             "m15_last_break_kind", "m15_break_age_bars", "m15_range_zone",
                             "context_risk_score", "risk tier", "bos_displacement_top_quartile",
                             "fill_m5_last_choch_alignment", "setup_m5_opposite_sweep",
+                            "breakeven_armed", "breakeven_exit",
+                            "original_stop", "final_stop",
+                            "setup_model", "is_revival", "revival_attempt",
+                            "is_reentry", "ob_entry_attempt",
+                            "sweep_reclaim_lag_bars", "spread_waited",
+                            "spread_wait_seconds", "open_risk_before_entry",
+                            "projected_open_risk_fraction",
+                            "entry_timeframe", "entry_trigger",
+                            "m1_reclaim_lag_bars", "m1_lead_minutes",
+                            "m1_setup_to_confirm_minutes", "m1_risk_multiplier",
+                            "m1_unique_vs_m5", "m1_sequence_status",
                             "entry_execution_source", "entry_execution_spread",
                             "demo_order_sent", "demo_position_ticket", "demo_open_price",
                             "demo_entry_slippage", "demo_close_price", "demo_exit_slippage"] if x in trades]
         recent = trades[cols].tail(200).iloc[::-1]
-        sections.append("<section class='wide'><h2>Latest trades (max 200)</h2>" +
-                        recent.to_html(index=False, classes="data", border=0, float_format=lambda x: f"{x:.3f}") + "</section>")
+        sections.append('<section class="wide"><h2>Latest trades (max 200)</h2><div class="table-scroll">' +
+                        recent.to_html(index=False, classes="data", border=0, float_format=lambda x: f"{x:.3f}") +
+                        "</div></section>")
     css = """
     :root{color-scheme:dark;font-family:Inter,Segoe UI,Arial;background:#0b1020;color:#e7ebf5}
     body{max-width:1500px;margin:auto;padding:28px}.muted{color:#93a0ba}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0}
     .card,section{background:#121a2e;border:1px solid #23304d;border-radius:12px;padding:16px}.card span{display:block;color:#93a0ba;font-size:13px}.card b{font-size:22px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}h1,h2{margin-top:0}h2{font-size:17px}
-    table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #26324c;text-align:right}th:first-child,td:first-child{text-align:left}th{color:#9fb0ce}
-    svg{width:100%;height:260px}.line{fill:none;stroke:#49d39d;stroke-width:2}.area{fill:#49d39d22}.axis{stroke:#394766;stroke-width:1}
-    @media(max-width:850px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}body{padding:12px}}
+    .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #26324c;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:#9fb0ce;position:sticky;top:0;background:#121a2e}
+    tbody tr:nth-child(even){background:#0f1729}tbody tr:hover{background:#16233d}
+    svg{width:100%;height:260px}.line{fill:none;stroke:#49d39d;stroke-width:2}.area{fill:#49d39d22}.axis{stroke:#394766;stroke-width:1}.chart-label{fill:#93a0ba;font-size:11px;font-family:Inter,Segoe UI,Arial}
+    @media(max-width:850px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}body{padding:12px}.cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}}
     """
     refresh = (f'<meta http-equiv="refresh" content="{int(refresh_seconds)}">'
                if refresh_seconds else "")
-    doc = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">{refresh}<title>{html.escape(title)}</title><style>{css}</style></head>
+    doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">{refresh}<title>{html.escape(title)}</title><style>{css}</style></head>
     <body><h1>{html.escape(title)}</h1><div class="muted">{context_html}</div><div class="cards">{cards}</div>
     <section><h2>Equity curve</h2>{chart}</section><div class="grid">{''.join(sections)}</div></body></html>"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -347,7 +478,14 @@ def _equity_svg(values: list[float]) -> str:
         points.append(f"{x:.1f},{y:.1f}")
     line = " ".join(points)
     area = f"{pad},{height-pad} {line} {width-pad},{height-pad}"
-    return f'<svg viewBox="0 0 {width} {height}" role="img"><line class="axis" x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}"/><polygon class="area" points="{area}"/><polyline class="line" points="{line}"/></svg>'
+    hi_label = f'<text class="chart-label" x="{pad}" y="{pad + 10}">${hi:,.2f}</text>'
+    lo_label = f'<text class="chart-label" x="{pad}" y="{height - pad - 4}">${lo:,.2f}</text>'
+    last_label = (f'<text class="chart-label" x="{width - pad}" y="{pad + 10}" text-anchor="end">'
+                  f'${values[-1]:,.2f}</text>')
+    return (f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Equity curve">'
+           f'<line class="axis" x1="{pad}" y1="{height-pad}" x2="{width-pad}" y2="{height-pad}"/>'
+           f'<polygon class="area" points="{area}"/><polyline class="line" points="{line}"/>'
+           f'{hi_label}{lo_label}{last_label}</svg>')
 
 
 def _bucket(value, limits):

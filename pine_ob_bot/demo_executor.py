@@ -96,6 +96,31 @@ class DemoExecutor:
                    for item in managed if int(item.ticket) not in matched_tickets]
         return {"matched": matched, "missing": missing, "orphans": orphans}
 
+    def modify_stop(self, position: PaperPosition, new_stop: float) -> dict:
+        """Mirror a paper-side SL move (e.g. breakeven) to the broker position.
+
+        TP is re-sent unchanged; MT5's TRADE_ACTION_SLTP replaces both levels
+        so omitting it would clear the target.
+        """
+        mt5_position = self._find_position(position.id,
+                                           position.meta.get("demo_position_ticket"))
+        if mt5_position is None:
+            return {"status": "position_not_found",
+                    "ticket": position.meta.get("demo_position_ticket")}
+        request = {
+            "action": self.mt5.TRADE_ACTION_SLTP,
+            "symbol": self.symbol,
+            "position": int(mt5_position.ticket),
+            "sl": float(new_stop),
+            "tp": float(position.target),
+            "magic": self.magic,
+        }
+        result = self.mt5.order_send(request)
+        self._require_success(result, "modify_stop")
+        return {"status": "modified", "ticket": int(mt5_position.ticket),
+                "sl": float(new_stop), "tp": float(position.target),
+                "retcode": int(result.retcode)}
+
     def close(self, position_id: str, direction: str, ticket: int | None,
               volume: float) -> dict:
         mt5_position = self._find_position(position_id, ticket)

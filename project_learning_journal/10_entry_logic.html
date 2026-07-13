@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۰ — قیف تصمیم‌گیری ورود | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۰ از ۲۰</div>
+    <h1>قیف تصمیم‌گیری ورود</h1>
+    <p class="chapter-sub"><code>PaperBroker.add_ob</code> از صفر تا پذیرش یا رد نهایی — جایی که فصل‌های ۶ تا ۹ به هم می‌رسند.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#funnel">هفت مرحلهٔ قیف پذیرش</a></li>
+      <li><a href="#diagram">نمودار قیف</a></li>
+      <li><a href="#code">کد کامل (خلاصه‌شده) و توضیح</a></li>
+      <li><a href="#example">مثال گام‌به‌گام</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل‌های ۶ تا ۹ هرکدام یک مفهوم SMC را جدا توضیح دادند. این فصل نشان می‌دهد همهٔ آن‌ها دقیقاً
+    کجا و به چه ترتیبی داخل یک تابع واحد — <code>PaperBroker.add_ob</code> — کنار هم قرار می‌گیرند
+    تا تصمیم بگیرند یک Order Block تازه‌ساخته‌شده باید به یک <code>PendingOrder</code> واقعی تبدیل
+    شود یا رد شود.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/paper.py</code> — متد <code>PaperBroker.add_ob</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۶، ۷، ۸، ۹</dd>
+  </div>
+
+  <h2 id="funnel">هفت مرحلهٔ قیف پذیرش</h2>
+  <table>
+    <thead><tr><th>#</th><th>بررسی</th><th>دلیل رد در صورت شکست</th><th>فصل مرتبط</th></tr></thead>
+    <tbody>
+      <tr><td>۱</td><td>نوع شکست در <code>allowed_break_kinds</code> است؟</td><td><code>rejected_break_kind</code></td><td>۸</td></tr>
+      <tr><td>۲</td><td>اگر <code>strong_choch_only</code>: آیا CHoCH، top-quartile displacement دارد؟</td><td><code>rejected_weak_choch</code></td><td>۸</td></tr>
+      <tr><td>۳</td><td>سلامت هندسی OB (<code>high &gt; low</code>) و عدم تکرار سفارش</td><td>رد بی‌صدا (بدون شمارنده)</td><td>۵</td></tr>
+      <tr><td>۴</td><td>دروازهٔ Trend M5</td><td><code>rejected_trend_neutral</code> / <code>rejected_trend_mismatch</code></td><td>۶</td></tr>
+      <tr><td>۵</td><td>دروازهٔ Entry Pivot (اگر فعال): وجود، عدم نگاه‌به‌آینده، سن</td><td><code>rejected_no_entry_pivot</code> / <code>rejected_stale_entry_pivot</code></td><td>۷</td></tr>
+      <tr><td>۶</td><td>محاسبهٔ risk/target و ساخت <code>PendingOrder</code></td><td>—</td><td>۱۲</td></tr>
+      <tr><td>۷</td><td>افزودن به <code>self.pending</code> با مرتب‌سازی FIFO</td><td>—</td><td>۱۳</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="diagram">نمودار قیف</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="قیف پذیرش add_ob">
+      <defs><marker id="a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/></marker></defs>
+      <style>.b{fill:#1b2028;stroke:#2a3140;} .t{fill:#e7ebf3;font-size:11px;font-family:sans-serif;text-anchor:middle;} .rej{fill:#3a1220;stroke:#c9406f;} .rt{fill:#ffc2d3;font-size:10px;font-family:sans-serif;text-anchor:middle;} .e{stroke:#5aa9ff;stroke-width:1.4;fill:none;marker-end:url(#a10);}</style>
+      <rect x="20" y="110" width="140" height="40" class="b" rx="8"/><text x="90" y="134" class="t">OB تازه‌ساخته</text>
+      <rect x="190" y="110" width="120" height="40" class="b" rx="8"/><text x="250" y="134" class="t">break_kind</text>
+      <rect x="340" y="110" width="120" height="40" class="b" rx="8"/><text x="400" y="134" class="t">strong CHoCH</text>
+      <rect x="490" y="110" width="120" height="40" class="b" rx="8"/><text x="550" y="134" class="t">Trend Gate</text>
+      <rect x="640" y="110" width="120" height="40" class="b" rx="8"/><text x="700" y="134" class="t">Entry Pivot</text>
+      <rect x="790" y="90" width="90" height="60" class="b" rx="8" stroke="#7ee2b8"/><text x="835" y="115" class="t">PendingOrder</text><text x="835" y="132" class="t">"armed"</text>
+
+      <rect x="190" y="10" width="120" height="30" class="rej" rx="6"/><text x="250" y="30" class="rt">rejected_break_kind</text>
+      <rect x="340" y="10" width="120" height="30" class="rej" rx="6"/><text x="400" y="30" class="rt">rejected_weak_choch</text>
+      <rect x="490" y="10" width="120" height="30" class="rej" rx="6"/><text x="550" y="30" class="rt">rejected_trend_*</text>
+      <rect x="640" y="10" width="120" height="30" class="rej" rx="6"/><text x="700" y="30" class="rt">rejected_*_entry_pivot</text>
+
+      <path class="e" d="M160,130 L190,130"/>
+      <path class="e" d="M310,130 L340,130"/>
+      <path class="e" d="M460,130 L490,130"/>
+      <path class="e" d="M610,130 L640,130"/>
+      <path class="e" d="M760,130 L790,120"/>
+      <path class="e" d="M250,110 L250,40"/>
+      <path class="e" d="M400,110 L400,40"/>
+      <path class="e" d="M550,110 L550,40"/>
+      <path class="e" d="M700,110 L700,40"/>
+    </svg>
+    <div class="diagram-caption">هر مرحله می‌تواند مسیر را همان‌جا قطع کند؛ فقط عبور از تمام مراحل به یک <code>PendingOrder</code> واقعی می‌رسد.</div>
+  </div>
+
+  <h2 id="code">کد کامل (خلاصه‌شده) و توضیح</h2>
+  <div class="code-path">pine_ob_bot/paper.py — PaperBroker.add_ob (اسکلت خلاصه‌شده)</div>
+  <pre><code class="language-python">def add_ob(self, ob: OrderBlock, extra_meta=None) -> PendingOrder | None:
+    self.stats["setups_seen"] += 1
+
+    if ob.break_kind != "unknown" and ob.break_kind not in self.cfg.allowed_break_kinds:
+        return self._reject(ob, "rejected_break_kind")
+
+    if self.cfg.strong_choch_only and ob.break_kind == "CHoCH":
+        if not (extra_meta or {}).get("bos_displacement_top_quartile"):
+            return self._reject(ob, "rejected_weak_choch")
+
+    if ob.high <= ob.low or self._has_order_for(ob.id):
+        return None
+
+    trend_check = validate_trade_direction(ob.direction, self.current_m5_trend)
+    if not trend_check.is_allowed:
+        return self._reject(ob, trend_check.rejection_reason)
+
+    if self.entry_pivot_gate_active:
+        pivot_ok, reason = self._check_entry_pivot(ob)
+        if not pivot_ok:
+            return self._reject(ob, reason)
+
+    risk = ob.high - ob.low
+    target = ob.entry + self.cfg.rr * risk if ob.direction == "bull" else ob.entry - self.cfg.rr * risk
+    order = PendingOrder(
+        id=new_id(), ob_id=ob.id, direction=ob.direction,
+        entry=ob.entry, stop=ob.stop, target=target,
+        created_index=ob.formed_index, created_time=ob.formed_time,
+        lifecycle_state="formed" if self.cfg.entry_lifecycle_enabled else "armed",
+        meta={**(extra_meta or {}), "break_kind": ob.break_kind, ...},
+    )
+    self.pending.append(order)
+    self.pending.sort(key=lambda o: (o.created_index, o.created_time))
+    return order</code></pre>
+  <p>
+    خط به خط (نکات مهم): تابع در همان لحظهٔ اولین شکست، فوراً <code>return</code> می‌کند — هیچ
+    ادامه‌ای بعد از رد وجود ندارد (خروج زودهنگام/Guard Clause، یک الگوی خوانایی مهم برای توابع با
+    چند شرط پشت‌سرهم). محاسبهٔ <code>target</code> از یک عبارت شرطی درون‌خطی (ternary) استفاده
+    می‌کند که جهت را در نظر می‌گیرد — برای خرید هدف بالاتر از entry، برای فروش پایین‌تر.
+    <code>self.pending.sort(...)</code> بعد از هر افزودن دوباره مرتب می‌شود تا ترتیب FIFO (قدیمی‌ترین
+    اول) برای پر شدن حفظ شود.
+  </p>
+
+  <h2 id="example">مثال گام‌به‌گام</h2>
+  <p>فرض کنید: Trend فعلی = صعودی، یک OB صعودی با <code>break_kind="BOS"</code> تازه فرم شده، و دروازهٔ Entry Pivot فعال است.</p>
+  <ol>
+    <li>مرحلهٔ نوع شکست: <code>"BOS"</code> در <code>allowed_break_kinds=("BOS",)</code> هست → عبور.</li>
+    <li>مرحلهٔ strong CHoCH: چون <code>break_kind != "CHoCH"</code>، این شرط اصلاً بررسی نمی‌شود → عبور.</li>
+    <li>سلامت هندسی: <code>high &gt; low</code> → عبور.</li>
+    <li>دروازهٔ Trend: side=<code>"bull"</code>، current=<code>BULLISH</code> → مجاز → عبور.</li>
+    <li>دروازهٔ Entry Pivot: اگر آخرین Pivot Low تأییدشده، سن مناسبی دارد (کمتر از <code>max_entry_pivot_age_bars</code>) → عبور.</li>
+    <li>یک <code>PendingOrder</code> با <code>lifecycle_state="armed"</code> ساخته و به لیست معلق اضافه می‌شود.</li>
+  </ol>
+  <p>اگر در مرحلهٔ ۵ آخرین Pivot Low اصلاً وجود نداشت، همان‌جا با <code>rejected_no_entry_pivot</code> متوقف می‌شد و هیچ سفارشی ساخته نمی‌شد — حتی اگر مراحل ۱ تا ۴ کاملاً عبور کرده باشند.</p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>Guard Clause (خروج زودهنگام):</strong> به‌جای تودرتو کردن چند <code>if</code> در هم
+    (<code>if a: if b: if c: ...</code>)، هر شرط رد جداگانه و در همان سطر <code>return</code>
+    می‌کند — کد خطی و قابل‌ردیابی می‌ماند، حتی با هفت شرط پشت‌سرهم.
+  </p>
+  <p>
+    <strong>ساخت شیء غنی از متادیتا:</strong> <code>meta</code> روی <code>PendingOrder</code> یک
+    دیکشنری باز است که هر مرحلهٔ قبلی (Entry Pivot، Displacement، M15، نقدینگی) رد پای خودش را در
+    آن می‌گذارد — یک الگوی «context bag» رایج برای رهگیری/دیباگ سیستم‌های چندمرحله‌ای.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فکر کردن که ترتیب هفت مرحله بی‌اهمیت است — نیست: مثلاً بررسی سلامت هندسی قبل از دروازهٔ Trend می‌آید، پس یک OB نامعتبر حتی شمارندهٔ رد Trend را هم افزایش نمی‌دهد.</li>
+    <li>انتظار داشتن ساخت سفارش برای هر OB تازه — بسیاری از OBها همان لحظهٔ ساخت رد می‌شوند و هرگز <code>PendingOrder</code> نمی‌شوند.</li>
+</ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (پیشرفته) — طبق فهرست تمرین‌های اصلی: «اضافه‌کردن یک فیلتر ورود»</h4>
+    <p>فرض کنید می‌خواهید یک فیلتر جدید اضافه کنید: رد هر OB که <code>atr_at_formation</code> آن
+    کمتر از یک آستانهٔ مشخص باشد (نویز خیلی کم). این بررسی باید در کدام نقطهٔ قیف بالا قرار بگیرد
+    و چرا؟ چه شمارندهٔ آماری جدیدی باید اضافه شود؟</p>
+    <details><summary>راهنما</summary><p class="hint">به الگوی هر مرحلهٔ موجود نگاه کنید: یک شرط + یک <code>return self._reject(ob, "...")</code> + یک شمارندهٔ متناظر در <code>stats</code>.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>هفت مرحلهٔ قیف پذیرش را به ترتیب نام ببرید.</li>
+    <li>چرا بررسی سلامت هندسی OB هیچ شمارندهٔ آماری ندارد اما بقیهٔ ردها دارند؟</li>
+    <li>اگر Entry Pivot گیت غیرفعال باشد، مرحلهٔ ۵ چه می‌شود؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>PaperBroker.add_ob</code> نقطه‌ای است که فصل‌های ۶ تا ۹ به هم می‌رسند: نوع شکست، قدرت
+    CHoCH، جهت Trend و تازگی Entry Pivot، همه به‌ترتیب و با الگوی Guard Clause بررسی می‌شوند. فقط
+    عبور از هر هفت مرحله یک <code>PendingOrder</code> واقعی می‌سازد.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="09_sweep_and_reclaim.html"><span class="dir">→ فصل قبل</span>Sweep and Reclaim</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="11_risk_sizing.html"><span class="dir">فصل بعد ←</span>Risk Sizing</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۵ — بک‌تست | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۵ از ۲۰</div>
+    <h1>بک‌تست</h1>
+    <p class="chapter-sub"><code>run_historical</code> (کندلی) در برابر <code>run_tick_historical</code> (تیکی) — و یک بک‌تست کوچک آموزشی که واقعاً اجرا می‌شود.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#historical">run_historical: بازپخش کندلی</a></li>
+      <li><a href="#tick">run_tick_historical: بازپخش تیکی</a></li>
+      <li><a href="#compare">مقایسهٔ دو مسیر</a></li>
+      <li><a href="#dataset">دیتاست آموزشی این ژورنال</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: بک‌تست کوچک</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل ۱۴ کل چرخهٔ یک معامله را در مسیر <strong>زنده</strong> ردیابی کرد. این فصل نشان می‌دهد
+    دقیقاً همان زنجیره، در دو مسیر <strong>بک‌تست</strong> (بدون MT5، بدون تیک واقعی) چگونه
+    بازتولید می‌شود — و چرا هرچه به داده‌ای نزدیک‌تر باشیم که واقعاً در بازار اتفاق افتاده،
+    بک‌تست «صادق‌تر» است.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt><dd><code>pine_ob_bot/historical.py</code>، <code>pine_ob_bot/tick_historical.py</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۳، ۱۴</dd>
+  </div>
+
+  <h2 id="historical">run_historical: بازپخش کندلی</h2>
+  <p>
+    برای هر ردیف CSV (به ترتیب): یک <code>Candle</code> ساخته می‌شود؛ <code>broker.process_candle(...)</code>
+    <strong>اول</strong> صدا زده می‌شود (پر شدن/بسته‌شدن این کندل، بر پایهٔ وضعیت ساختاریِ
+    <em>کندل قبلی</em>) — سپس موتور ساختار همین کندل را پردازش می‌کند. این ترتیب تضمین می‌کند یک
+    Order Block که <em>در همین کندل</em> فرم می‌شود، هرگز نمی‌تواند در همان کندل خودش پر شود
+    (بدون نگاه‌به‌آینده).
+  </p>
+  <p>
+    <code>data.loader.load_m5</code> از پروژهٔ مستقل ریشه (فصل ۱) برای خواندن CSV استفاده می‌شود —
+    تنها نقطه‌ای که <code>historical.py</code> از مرز پکیج خودش بیرون می‌رود.
+  </p>
+
+  <h2 id="tick">run_tick_historical: بازپخش تیکی</h2>
+  <p>
+    این مسیر واقعی‌ترین بک‌تست پروژه است: به‌جای OHLC، تیک‌های واقعی Bid/Ask بازپخش می‌شوند.
+    <code>M5Builder</code> این تیک‌ها را در سطل‌های ۵ دقیقه‌ای جمع می‌کند (با برش رشته‌ای سریع
+    روی timestamp، نه parse کامل datetime، برای سرعت روی فایل‌های تیکی حجیم) و هر بار که یک سطل
+    بسته می‌شود، <code>close_bar(...)</code> دقیقاً همان ترتیب <code>PaperApp.on_closed_candle</code>
+    (فصل ۱۴) را تکرار می‌کند.
+  </p>
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    یک محافظ warm-up وجود دارد: تا رسیدن تعداد کندل‌ها به <code>warmup_bars</code> (پیش‌فرض ۵۰۰)،
+    هیچ سفارشی ساخته نمی‌شود؛ و در همان لحظه که این آستانه اولین‌بار رد می‌شود،
+    <code>broker.pending</code> کاملاً خالی می‌شود — یعنی هر Order Block که <em>در طول</em> دورهٔ
+    گرم‌شدن فرم شده، دور ریخته می‌شود و هرگز به یک معاملهٔ واقعی «نشت» نمی‌کند.
+  </div>
+
+  <h2 id="compare">مقایسهٔ دو مسیر</h2>
+  <table>
+    <thead><tr><th></th><th>run_historical</th><th>run_tick_historical</th></tr></thead>
+    <tbody>
+      <tr><td>ورودی</td><td>CSV کندلی OHLC</td><td>CSV(های) تیکی Bid/Ask</td></tr>
+      <tr><td>Spread</td><td>ثابت (پارامتر <code>spread</code>)</td><td>واقعی (Ask-Bid هر تیک)</td></tr>
+      <tr><td>دقت پر شدن</td><td>تقریبی (فرض قیمت پیوسته داخل کندل)</td><td>دقیق (قیمت واقعی لحظه‌ای)</td></tr>
+      <tr><td>SQLite Snapshot</td><td>بله (<code>historical_*.sqlite3</code> مجزا)</td><td>خیر</td></tr>
+      <tr><td>محافظ Warm-up</td><td>ندارد</td><td>دارد (<code>warmup_bars</code>)</td></tr>
+      <tr><td>مسیر مشترک با تشخیص ساختار</td><td>همان موتور/بروکر/کانتکست‌ها</td><td>همان موتور/بروکر/کانتکست‌ها</td></tr>
+    </tbody>
+  </table>
+  <p>
+    ادعای معماریِ مشترک هر دو (و مسیر زنده) این است: تشخیص ساختار، Trend، Entry Pivot و قیف پذیرش
+    هرگز بین این سه مسیر واگرا نمی‌شوند — فقط «چگونگی پر شدن سفارش» فرق دارد.
+  </p>
+
+  <h2 id="dataset">دیتاست آموزشی این ژورنال</h2>
+  <p>
+    برای آزمایش زیر، یک دیتاست کاملاً مصنوعی و کوچک (۱۵۰ کندل M5، seed ثابت، بدون هیچ ارتباطی با
+    داده‌های واقعی/حجیم پروژه در <code>data/</code>) در همین پوشهٔ مستندات ساخته شده:
+    <code>project_learning_journal/data_samples/mini_backtest_sample.csv</code> — همان ستون‌های
+    <code>time, open, high, low, close</code> که <code>data.loader.load_m5</code> انتظار دارد.
+  </p>
+
+  <h2 id="lab">آزمایشگاه تعاملی: بک‌تست کوچک آموزشی</h2>
+  <div class="lab"><div id="lab-mini-backtest"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/historical.py</code> → تابع
+    <code class="small">run_historical</code>، روی دیتاست مصنوعی بالا (نه دادهٔ تاریخی واقعی
+    پروژه). خروجی این آزمایش شامل تعداد معاملات، Win Rate، Total R، Profit Factor، حداکثر
+    Drawdown و نمودار Equity است — همه از یک اجرای واقعی همان تابع، نه اعداد از پیش نوشته‌شده.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>Warm-up period:</strong> بسیاری از اندیکاتورهای پنجره‌ای (ATR با <code>period=200</code>،
+    Swing با <code>trend_swing_length</code>) به تعدادی کندل «گرم‌کردن» نیاز دارند پیش از آنکه
+    خروجی معنادار بدهند — نادیده گرفتن این دوره یکی از رایج‌ترین منابع خطای بک‌تست در هر پروژهٔ
+    معاملاتی است.
+  </p>
+  <p>
+    <strong>بازپخش رویدادمحور قطعی (Deterministic Event Replay):</strong> برخلاف مسیر زنده که به
+    ساعت دیواری وابسته است، بک‌تست کندلی/تیکی کاملاً قطعی‌اند — اجرای دوبارهٔ همان فایل، همیشه
+    دقیقاً همان نتیجه را می‌دهد. این ویژگی، پیش‌نیاز هر تست رگرسیون قابل‌اعتماد است (فصل ۱۷).
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>مقایسهٔ مستقیم اعداد بک‌تست کندلی و تیکی روی همان بازه و انتظار تطابق دقیق — spread ثابت در برابر واقعی، نتایج را متفاوت می‌کند.</li>
+    <li>نادیده گرفتن دورهٔ warm-up در تحلیل تعداد معاملات بک‌تست تیکی.</li>
+    <li>تلاش برای اجرای این آزمایش‌ها روی فایل‌های واقعی و حجیم پروژه (<code>data/*.csv</code>) — این ژورنال عمداً فقط از دیتاست کوچک مصنوعی بالا استفاده می‌کند.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط تا پیشرفته)</h4>
+    <p>در آزمایشگاه بالا، <code>trend_swing_length</code> و <code>rr</code> را تغییر دهید و اثر آن را
+    روی تعداد معاملات، Win Rate و Profit Factor مشاهده کنید. آیا تعداد معاملات و Win Rate با هم
+    هم‌جهت تغییر می‌کنند یا نه؟ چرا این رابطه لزوماً ساده نیست؟</p>
+    <details><summary>راهنما</summary><p class="hint">پنجرهٔ بزرگ‌تر یعنی سیگنال‌های کمتر ولی احتمالاً «تمیزتر» — رابطهٔ کلاسیک تعداد/کیفیت سیگنال را در نظر بگیرید.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا <code>run_historical</code> ابتدا <code>process_candle</code> را صدا می‌زند و بعد موتور ساختار را؟</li>
+    <li>دورهٔ warm-up در <code>run_tick_historical</code> چه مشکلی را حل می‌کند؟</li>
+    <li>چه چیزی بین سه مسیر اجرا (زنده، کندلی، تیکی) هرگز نباید واگرا شود؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    هر دو بک‌تست همان زنجیرهٔ تشخیص/تصمیم مسیر زنده را با ترتیب یکسان اجرا می‌کنند؛ فقط منبع داده و
+    وفاداری پر شدن سفارش فرق دارد. آزمایشگاه این فصل یک بک‌تست واقعی، هرچند کوچک و مصنوعی، را
+    مستقیماً از <code>run_historical</code> اجرا می‌کند.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="14_full_trade_lifecycle.html"><span class="dir">→ فصل قبل</span>چرخهٔ کامل یک معامله</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="16_reporting_cli.html"><span class="dir">فصل بعد ←</span>گزارش‌گیری و CLI</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-mini-backtest",
+    experimentId: "mini_backtest",
+    title: "اجرای بک‌تست روی دیتاست مصنوعی کوچک",
+    goal: "با تنظیم پارامترهای اصلی، run_historical را روی ۱۵۰ کندل مصنوعی اجرا کنید و نتایج واقعی (نه نمونه) را ببینید.",
+    sourceRef: "فایل: pine_ob_bot/historical.py — تابع: run_historical — دیتاست: project_learning_journal/data_samples/mini_backtest_sample.csv",
+    fields: [
+      { name: "trend_swing_length", label: "طول Swing روند", type: "int", default: 12, min: 3, max: 30, step: 1 },
+      { name: "pivot_left", label: "Pivot Left", type: "int", default: 5, min: 1, max: 15, step: 1 },
+      { name: "pivot_right", label: "Pivot Right", type: "int", default: 5, min: 1, max: 15, step: 1 },
+      { name: "rr", label: "RR", type: "float", default: 1.5, min: 0.5, max: 5, step: 0.1 },
+      { name: "sweep_atr_buffer", label: "بافر ATR (Sweep and Reclaim)", type: "float", default: 0.20, min: 0, max: 2, step: 0.01 },
+      { name: "strong_choch_only", label: "Strong CHoCH Only", type: "checkbox", default: false },
+      { name: "max_entry_pivot_age", label: "حداکثر سن Pivot (کندل)", type: "int", default: 10, min: 1, max: 50, step: 1 },
+      { name: "breakeven_trigger_r", label: "آستانهٔ Breakeven (R، ۰ = خاموش)", type: "float", default: 0, min: 0, max: 5, step: 0.1 }
+    ]
+  });
+</script>
+</body>
+</html>

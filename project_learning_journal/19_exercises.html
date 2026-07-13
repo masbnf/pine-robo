@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۹ — تمرین‌های تجمیعی | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۹ از ۲۰</div>
+    <h1>تمرین‌های تجمیعی</h1>
+    <p class="chapter-sub">تمرین‌هایی که چند فصل را با هم درگیر می‌کنند — از پیدا کردن یک مسیر اجرا تا بررسی یک خطای احتمالی بدون تغییر رفتار فعلی.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#level1">سطح ۱ — ردیابی و کاوش (بدون تغییر کد)</a></li>
+      <li><a href="#level2">سطح ۲ — افزودن قابلیت کوچک</a></li>
+      <li><a href="#level3">سطح ۳ — تست و اعتبارسنجی</a></li>
+      <li><a href="#level4">سطح ۴ — تحلیل و بررسی بدون تغییر رفتار</a></li>
+      <li><a href="#how-to-use">چگونه از این تمرین‌ها استفاده کنیم</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل‌های ۶ تا ۱۷ هرکدام تمرین‌های خاص خودشان را داشتند. این فصل آن‌ها را در قالب چند مسیر
+    یادگیریِ تجمیعی — که آگاهانه چند ماژول را با هم درگیر می‌کنند — سازمان می‌دهد. برای هر تمرین
+    فقط راهنما داده می‌شود، نه پاسخ کامل؛ هدف این است که خودتان کد واقعی را باز کنید و دنبال کنید.
+  </p>
+
+  <h2 id="level1">سطح ۱ — ردیابی و کاوش (بدون تغییر کد)</h2>
+
+  <div class="exercise">
+    <h4>۱.۱ — پیدا کردن مسیر اجرای یک سیگنال</h4>
+    <p>یک BOS صعودی روی M5 رخ داده. مسیر دقیق کد را از لحظهٔ تشخیص آن شکست تا لحظه‌ای که (در صورت پذیرش) یک <code>PendingOrder</code> ساخته می‌شود، فایل‌به‌فایل و تابع‌به‌تابع بنویسید.</p>
+    <details><summary>راهنما</summary><p class="hint">شروع: <code>pine_engine.py::process</code>. سپس به فصل ۱۰ (جدول هفت‌مرحله‌ای <code>add_ob</code>) و فصل ۱۴ (نمودار کامل) مراجعه کنید.</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۱.۲ — ردیابی یک رد (rejection)</h4>
+    <p>یک OB با <code>break_kind="CHoCH"</code> و بدون top-quartile displacement، وقتی <code>strong_choch_only=True</code> است، دقیقاً کجا و با چه شمارنده‌ای رد می‌شود؟</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۸ و جدول فصل ۱۰، ردیف ۲.</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۱.۳ — دنبال کردن یک متغیر در چند ماژول</h4>
+    <p><code>current_m5_trend</code> را از لحظهٔ محاسبهٔ خام در <code>pine_engine.py</code> تا سه نقطهٔ متفاوتی که در <code>paper.py</code> بررسی می‌شود، ردیابی کنید.</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۶ («دفاع در عمق») — سه محل: <code>add_ob</code>، <code>_open</code>، <code>update_m5_trend</code>.</p></details>
+  </div>
+
+  <h2 id="level2">سطح ۲ — افزودن قابلیت کوچک</h2>
+
+  <div class="exercise">
+    <h4>۲.۱ — اضافه‌کردن یک config جدید</h4>
+    <p>یک فیلد <code>min_ob_width_atr: float = 0.0</code> به <code>BotConfig</code> اضافه کنید که حداقل عرض مجاز یک Order Block (بر حسب ATR) را تعیین می‌کند.</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۴ (الگوی فیلد + اعتبارسنجی) و فصل ۱۰ (کجای قیف پذیرش باید این بررسی اضافه شود).</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۲.۲ — اضافه‌کردن یک counter جدید</h4>
+    <p>یک شمارندهٔ جدید <code>stats["rejected_min_ob_width"]</code> اضافه کنید که هر بار تمرین ۲.۱ باعث رد یک OB می‌شود، افزایش یابد.</p>
+    <details><summary>راهنما</summary><p class="hint">به الگوی شمارنده‌های موجود در جدول فصل ۱۰ نگاه کنید — هرکدام دقیقاً کنار همان <code>return self._reject(...)</code> افزایش می‌یابند.</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۲.۳ — اضافه‌کردن یک فیلتر ورود</h4>
+    <p>یک فیلتر اضافه کنید که setupهای با <code>bos_body_to_range</code> کمتر از یک آستانه (کندل شکست خیلی «فتیله‌دار») را رد کند.</p>
+    <details><summary>راهنما</summary><p class="hml">فصل ۲ (<code>structure_context.py::displacement_snapshot</code>) برای اینکه این مقدار از کجا می‌آید، فصل ۱۰ برای اینکه فیلتر کجا اضافه شود.</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۲.۴ — اضافه‌کردن یک ستون به گزارش معاملات</h4>
+    <p>یک ستون <code>hold_minutes</code> (فاصلهٔ زمانی <code>opened_time</code> تا <code>closed_time</code>) به CSV خروجی <code>export_reports</code> اضافه کنید.</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۱۶ — آیا این محاسبه باید در <code>Trade.meta</code> ذخیره شود یا در لحظهٔ نوشتن CSV محاسبه شود؟ هر دو راه‌حل معتبرند؛ مزایا/معایب هرکدام را بنویسید.</p></details>
+  </div>
+
+  <h2 id="level3">سطح ۳ — تست و اعتبارسنجی</h2>
+
+  <div class="exercise">
+    <h4>۳.۱ — نوشتن یک unit test برای تمرین ۲.۱</h4>
+    <p>یک تست بنویسید که تأیید کند یک OB با عرض کمتر از <code>min_ob_width_atr</code> رد می‌شود و شمارندهٔ ۲.۲ افزایش می‌یابد.</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۱۷، بخش «چگونه برای قابلیت جدید تست اضافه کنیم».</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۳.۲ — اجرای تست‌های موجود و خواندن خروجی</h4>
+    <p><code>pytest pine_ob_bot/tests/ -v</code> را اجرا کنید. کدام فایل بیشترین تعداد تست را دارد؟ چرا فکر می‌کنید آن بخش این‌قدر جزئی تست شده؟</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۱۷ را برای تناظر هر فایل با یک ادعای ایمنی/معماری ببینید.</p></details>
+  </div>
+
+  <h2 id="level4">سطح ۴ — تحلیل و بررسی بدون تغییر رفتار</h2>
+
+  <div class="exercise">
+    <h4>۴.۱ — بررسی یک خطای احتمالی بدون تغییر رفتار فعلی</h4>
+    <p>فصل ۱۳ («active در برابر lifecycle_state») یک ناهماهنگی مستند می‌کند: بعضی مسیرهای غیرفعال‌سازی <code>lifecycle_state</code> را به‌روز نمی‌کنند. بدون تغییر هیچ رفتاری، یک پچ فرضی (فقط در ذهن یا روی کاغذ) بنویسید که این ناهماهنگی را برطرف کند، و توضیح دهید چرا چنین تغییری باید همراه با تست جدید باشد.</p>
+    <details><summary>راهنما</summary><p class="hint">دو محل دقیق در فصل ۱۳ ذکر شده‌اند — به همان دو <code>if</code> در <code>paper.py</code> مراجعه کنید.</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۴.۲ — بررسی محدودیت ۱۰۰ تایی Order Block</h4>
+    <p>فصل ۸ یک «بدهی فنی» را مستند می‌کند: OBهای فعال می‌توانند صرفاً به‌خاطر طول لیست حذف شوند. یک سناریوی نظری (تعداد کندل، فرکانس شکست) طراحی کنید که این حالت را واقعاً محتمل کند، و توضیح دهید چرا در دادهٔ واقعی XAUUSD/M5 این حالت به‌ندرت رخ می‌دهد.</p>
+    <details><summary>راهنما</summary><p class="hint">به این فکر کنید: یک OB معمولاً چند کندل «زنده» می‌ماند قبل از ابطال طبیعی؟</p></details>
+  </div>
+
+  <div class="exercise">
+    <h4>۴.۳ — بررسی max_open_positions &gt; 1</h4>
+    <p>فصل ۱۳ اشاره می‌کند رفتار <code>max_open_positions &gt; 1</code> کاملاً تست‌نشده است. یک تست طراحی کنید (فقط طراحی، نیازی به نوشتن کامل نیست) که مشخص کند آیا سیستم واقعاً می‌تواند دو پوزیشن هم‌زمان باز کند یا نه.</p>
+    <details><summary>راهنما</summary><p class="hint">فصل ۱۰ («رفتار نیازمند بررسی» در <code>process_tick</code>) — به شرط early-return وقتی پوزیشنی باز است نگاه کنید.</p></details>
+  </div>
+
+  <h2 id="how-to-use">چگونه از این تمرین‌ها استفاده کنیم</h2>
+  <p>
+    توصیه می‌شود تمرین‌ها را به همان ترتیب سطح (۱ تا ۴) انجام دهید. سطح ۱ فقط خواندن کد است — اگر
+    در آن گیر کردید، به فصل مرتبط برگردید. سطح ۲ و ۳ نیاز به تغییر واقعی کد دارند؛ همیشه روی یک
+    کپی/شاخهٔ جدا کار کنید، نه مستقیم روی فایل‌های اصلی پروژه. سطح ۴ نیازی به نوشتن کد ندارد — فقط
+    تحلیل دقیق.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="18_interactive_lab_guide.html"><span class="dir">→ فصل قبل</span>راه‌اندازی آزمایشگاه تعاملی</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="20_glossary.html"><span class="dir">فصل بعد ←</span>واژه‌نامه</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

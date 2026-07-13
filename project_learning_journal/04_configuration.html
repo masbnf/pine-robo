@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۴ — پیکربندی (BotConfig) | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۴ از ۲۰</div>
+    <h1>پیکربندی: BotConfig</h1>
+    <p class="chapter-sub">تک‌تک پارامترهای <code>config.py</code>، منطق اعتبارسنجی، و یک باگ واقعی و رفع‌شدهٔ dataclass/property.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#concepts">مفاهیم dataclass، slots، InitVar</a></li>
+      <li><a href="#groups">گروه‌های پارامتر</a></li>
+      <li><a href="#validate">متد validate</a></li>
+      <li><a href="#techdebt">بدهی فنی: باگ property/dataclass</a></li>
+      <li><a href="#code">نمونهٔ کد و توضیح خط‌به‌خط</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    <code>BotConfig</code> «یک فایل برای تنظیم همه‌چیز» است — هر عددی که رفتار ربات را تغییر می‌دهد
+    (طول Swing، درصد ریسک، RR، حالت ورود...) از همین کلاس می‌آید. این فصل هم نقشهٔ کامل پارامترها را
+    می‌دهد و هم یک درسِ واقعیِ پایتون: چگونه یک باگ ظریف dataclass/property در همین فایل کشف و رفع شده است.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/config.py</code> (۲۲۲ خط، کامل)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل ۲</dd>
+  </div>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی: dataclass، slots، InitVar</h2>
+  <p>
+    <strong><code>@dataclass</code>:</strong> یک دکوریتور استاندارد پایتون که با نوشتن فقط
+    نام/نوع/مقدار پیش‌فرض فیلدها، به‌صورت خودکار <code>__init__</code>، <code>__repr__</code> و
+    <code>__eq__</code> می‌سازد. <code>BotConfig</code> با حدود ۷۰ فیلد، نمونهٔ خوبی از اینکه چرا
+    نوشتن دستیِ <code>__init__</code> برای یک کلاس تنظیمات بزرگ، غیرعملی است.
+  </p>
+  <p>
+    <strong><code>slots=True</code>:</strong> به پایتون می‌گوید به‌جای یک <code>__dict__</code>
+    پویا برای هر نمونه، فضای ذخیره‌سازی ثابتی برای فیلدهای تعریف‌شده اختصاص بده — حافظهٔ کمتر و
+    دسترسی سریع‌تر (مهم چون این پروژه با میلیون‌ها کندل/تیک در بک‌تست کار می‌کند)، اما به قیمت اینکه
+    نمی‌توان بعداً فیلد دلخواه جدید به یک نمونه اضافه کرد.
+  </p>
+  <p>
+    <strong><code>InitVar</code>:</strong> یک فیلد که فقط در <code>__init__</code> پذیرفته می‌شود اما
+    روی خودِ نمونه ذخیره نمی‌شود — به‌جایش در متد ویژهٔ <code>__post_init__</code> پردازش می‌شود.
+    <code>BotConfig</code> از آن برای <code>swing_length</code> استفاده می‌کند: نامی قدیمی/منسوخ که
+    باید به فیلد جدید <code>trend_swing_length</code> نگاشت شود، بدون اینکه خودش یک فیلد واقعی و
+    دائمی روی شیء باشد.
+  </p>
+
+  <h2 id="groups">گروه‌های پارامتر</h2>
+  <p>حدود ۷۰ فیلد <code>BotConfig</code> در این دسته‌ها سازمان یافته‌اند (نام دقیق، نوع و مقدار پیش‌فرض):</p>
+
+  <h3>نماد و تایم‌فریم</h3>
+  <table><tbody>
+    <tr><td><code>symbol</code></td><td>str</td><td><code>"XAUUSD"</code></td></tr>
+    <tr><td><code>timeframe</code></td><td>str</td><td><code>"M5"</code> (اعتبارسنجی‌شده، فقط M5 مجاز)</td></tr>
+    <tr><td><code>timeframe_minutes</code></td><td>int</td><td><code>5</code></td></tr>
+  </tbody></table>
+
+  <h3>Trend Swing (ساختار اصلی، فصل ۶)</h3>
+  <table><tbody>
+    <tr><td><code>trend_swing_length</code></td><td>int</td><td><code>12</code> — پنجرهٔ تأیید Swing/BOS/CHoCH اصلی (~۶۰ دقیقه تأخیر روی M5)</td></tr>
+    <tr><td><code>swing_length</code></td><td>InitVar/property</td><td>نام منسوخِ همان بالا — بخش «بدهی فنی» پایین را ببینید</td></tr>
+    <tr><td><code>atr_period</code></td><td>int</td><td><code>200</code></td></tr>
+  </tbody></table>
+
+  <h3>Entry Pivot (فصل ۷)</h3>
+  <table><tbody>
+    <tr><td><code>entry_pivot_left</code></td><td>int</td><td><code>5</code></td></tr>
+    <tr><td><code>entry_pivot_right</code></td><td>int</td><td><code>5</code> (~۲۵ دقیقه تأخیر تأیید)</td></tr>
+    <tr><td><code>max_entry_pivot_age_bars</code></td><td>int|None</td><td><code>None</code> — بدون محدودیت سن</td></tr>
+  </tbody></table>
+
+  <h3>کانتکست M15 (مشاهده‌گر، فصل ۲)</h3>
+  <table><tbody>
+    <tr><td><code>m15_swing_length</code></td><td>int</td><td><code>10</code></td></tr>
+    <tr><td><code>m15_atr_period</code></td><td>int</td><td><code>200</code></td></tr>
+  </tbody></table>
+
+  <h3>هدف و RR (فصل ۱۲)</h3>
+  <table><tbody>
+    <tr><td><code>rr</code></td><td>float</td><td><code>1.5</code></td></tr>
+    <tr><td><code>target_mode</code></td><td>str</td><td><code>"fixed_rr"</code> یا <code>"m5_liquidity_min_rr"</code></td></tr>
+  </tbody></table>
+
+  <h3>مدل‌های اندازه‌گیری ریسک (فصل ۱۱)</h3>
+  <p>یک مدل پایه (<code>risk_fraction=0.01</code>) به‌علاوه شش مدل تطبیقیِ متقابلاً انحصاری که <code>validate()</code> اطمینان می‌دهد فقط یکی هم‌زمان فعال باشد:</p>
+  <table><tbody>
+    <tr><td><code>liquidity_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code></td></tr>
+    <tr><td><code>choch_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code></td></tr>
+    <tr><td><code>combined_context_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code></td></tr>
+    <tr><td><code>displacement_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code></td></tr>
+    <tr><td><code>choch_displacement_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code> (پیش‌فرض ضمنیِ CLI)</td></tr>
+    <tr><td><code>three_factor_risk_sizing_enabled</code></td><td>bool</td><td><code>False</code></td></tr>
+  </tbody></table>
+  <p class="small">هر مدل، فیلدهای کسر ریسک اختصاصی خودش را هم دارد (مثلاً <code>choch_opposite_risk_fraction=0.0125</code>، <code>displacement_top_risk_fraction=0.0125</code>...) — جزئیات کامل در فصل ۱۱.</p>
+
+  <h3>فیلترهای ورود (فصل ۱۰)</h3>
+  <table><tbody>
+    <tr><td><code>max_open_positions</code></td><td>int</td><td><code>1</code></td></tr>
+    <tr><td><code>allowed_break_kinds</code></td><td>tuple[str,...]</td><td><code>("BOS",)</code></td></tr>
+    <tr><td><code>strong_choch_only</code></td><td>bool</td><td><code>False</code></td></tr>
+    <tr><td><code>min_entry_wait_bars</code></td><td>int</td><td><code>0</code></td></tr>
+    <tr><td><code>entry_mode</code></td><td>str</td><td><code>"limit"</code> یا <code>"sweep_reclaim"</code></td></tr>
+    <tr><td><code>sweep_reclaim_atr_buffer</code></td><td>float</td><td><code>0.20</code></td></tr>
+    <tr><td><code>sweep_reclaim_max_bars</code></td><td>int</td><td><code>1</code> — <span class="tag">آزمایشی</span></td></tr>
+    <tr><td><code>revival_shadow_audit</code></td><td>bool</td><td><code>False</code> — <span class="tag">آزمایشی</span></td></tr>
+  </tbody></table>
+
+  <h3>Breakeven و Lifecycle</h3>
+  <table><tbody>
+    <tr><td><code>breakeven_trigger_r</code></td><td>float|None</td><td><code>None</code> (غیرفعال)</td></tr>
+    <tr><td><code>entry_lifecycle_enabled</code></td><td>bool</td><td><code>False</code> — <span class="tag">آزمایشی</span></td></tr>
+  </tbody></table>
+
+  <h3>زنده/نظرسنجی، ماندگاری، ایمنی اسپرد، گزارش، دمو</h3>
+  <p>این گروه‌ها بیشتر مربوط به فصل‌های ۱۳، ۱۶ هستند؛ نمونه‌های کلیدی: <code>poll_seconds=1.0</code>،
+  <code>fallback_spread=0.20</code>، <code>db_path</code>/<code>trades_csv</code>/<code>summary_csv</code>
+  (زیر <code>pine_ob_bot_data/</code>)، <code>max_live_tick_age_seconds=30.0</code>،
+  <code>entry_spread_guard_enabled=True</code>، <code>dashboard_port=8765</code>،
+  <code>demo_orders_enabled=False</code>، <code>demo_max_free_margin_fraction=0.80</code>.</p>
+
+  <h2 id="validate">متد validate</h2>
+  <p>
+    <code>validate(self) -> None</code> تنها دروازهٔ سازگاری داخلی است و روی تقریباً هر فیلد بالا
+    یک بررسی دارد — نمونه‌ها: تایم‌فریم باید دقیقاً M5 باشد؛ پنجره‌ها باید مثبت باشند؛
+    <strong>حداکثر یکی</strong> از شش مدل ریسک تطبیقی می‌تواند فعال باشد (با جمع زدن boolean ها:
+    <code>sum([...]) &lt;= 1</code>)؛ <code>entry_mode</code> باید یکی از دو مقدار مجاز باشد؛
+    <code>sweep_reclaim_atr_buffer</code> نمی‌تواند منفی باشد؛ اگر <code>breakeven_trigger_r</code>
+    تنظیم شده، باید مثبت باشد؛ <code>max_open_positions &gt;= 1</code>؛ و ده‌ها بررسی مشابه دیگر.
+    هر خطا با <code>ValueError</code> و پیام واضح گزارش می‌شود — یعنی یک <code>BotConfig</code>
+    نامعتبر هرگز بی‌صدا وارد بقیهٔ سیستم نمی‌شود.
+  </p>
+
+  <h2 id="techdebt">بدهی فنی: باگ property/dataclass (کشف و رفع‌شده)</h2>
+  <div class="callout debt">
+    <span class="callout-tag">بدهی فنی — مستندشده در کامنت خود کد</span>
+    اگر <code>swing_length</code> به‌صورت یک <code>@property</code> <em>داخل بدنهٔ کلاس</em>
+    تعریف می‌شد (با همان نامِ فیلد <code>InitVar</code>)، دکوریتور <code>@dataclass(slots=True)</code>
+    آن را به‌عنوان <strong>مقدار پیش‌فرض همان InitVar</strong> برمی‌داشت — چون dataclass فضای نام
+    کلاس را دقیقاً پس از اجرای کامل بدنهٔ کلاس می‌خواند. نتیجه: هر بار که <code>BotConfig()</code>
+    بدون پاس‌دادن صریح <code>swing_length=</code> ساخته می‌شد، <code>trend_swing_length</code>
+    به‌جای عدد، به‌طور خاموش یک آبجکت <code>&lt;property object&gt;</code> تبدیل می‌شد — یک باگ
+    واقعی که کشف و رفع شده است. راه‌حل: <code>property</code> بعد از تعریف کامل کلاس، به‌صورت
+    دستی به آن الصاق می‌شود.
+  </div>
+
+  <div class="code-path">pine_ob_bot/config.py — انتهای فایل</div>
+  <pre><code class="language-python">BotConfig.swing_length = property(
+    lambda self: self.trend_swing_length
+)</code></pre>
+  <p>
+    این یک نکتهٔ آموزشی عالی است: در پایتون، ترتیب اجرای کد در سطح ماژول واقعاً اهمیت دارد.
+    دکوریتورهایی مثل <code>@dataclass</code> در «زمان تعریف کلاس» اجرا می‌شوند، نه در زمان
+    فراخوانی — پس هر چیزی که در همان لحظه در فضای نام کلاس باشد را می‌بینند، حتی اگر آن چیز به
+    نظر بی‌ربط برسد.
+  </p>
+
+  <h2 id="code">توضیح خط‌به‌خط: __post_init__</h2>
+  <div class="code-path">pine_ob_bot/config.py — __post_init__ (خلاصه‌شده)</div>
+  <pre><code class="language-python">def __post_init__(self, swing_length: int | None) -> None:
+    if swing_length is not None:
+        self.trend_swing_length = swing_length</code></pre>
+  <p>
+    خط به خط: پارامتر <code>swing_length</code> اینجا همان <code>InitVar</code> است که
+    dataclass به‌صورت خودکار به <code>__post_init__</code> پاس می‌دهد (نه به <code>__init__</code>
+    نهایی). اگر کاربر آن را صریحاً پاس داده باشد (<code>is not None</code>)، مقدار جدید
+    <code>trend_swing_length</code> را بازنویسی می‌کند — این دقیقاً همان سازگاری با نسخهٔ قدیمی
+    است که در فصل ۳ در سطح CLI (<code>--swing-length</code>) هم دیدیم، این‌بار در سطح خودِ کلاس تنظیمات.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>تعریف یک <code>@property</code> هم‌نام با یک فیلد <code>dataclass</code> در همان کلاس — دقیقاً همان باگی که بالا توضیح داده شد.</li>
+    <li>فعال کردن دو مدل ریسک تطبیقی هم‌زمان و انتظار داشتن اینکه هردو اثر بگذارند — <code>validate()</code> این را رد می‌کند.</li>
+    <li>تغییر فیلدهای <code>BotConfig</code> بعد از ساخت، بدون صدا زدن دوبارهٔ <code>validate()</code> — هیچ‌جا خودکار validate را دوباره صدا نمی‌زند.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط) — طبق فهرست تمرین‌های اصلی پروژه: «اضافه‌کردن یک config جدید»</h4>
+    <p>فرض کنید می‌خواهید یک فیلد جدید <code>max_daily_trades: int = 0</code> (۰ = بدون محدودیت)
+    به <code>BotConfig</code> اضافه کنید. مشخص کنید: (الف) این فیلد در کدام گروه بالا قرار می‌گیرد،
+    (ب) چه بررسی‌ای باید در <code>validate()</code> اضافه شود، (ج) چه پرچم CLی متناظری در
+    <code>run_pine_ob_paper.py</code> باید تعریف شود (فصل ۳ را مرور کنید).</p>
+    <details>
+      <summary>راهنما</summary>
+      <p class="hint">به الگوی <code>max_open_positions</code> نگاه کنید — هم فیلد، هم بررسی <code>&gt;= ۱</code>ی مشابه در <code>validate</code>، هم پرچم <code>--max-positions</code> در CLI.</p>
+    </details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li><code>slots=True</code> چه چیزی را تغییر می‌دهد و چرا برای این پروژه مهم است؟</li>
+    <li><code>InitVar</code> چه فرقی با یک فیلد معمولی <code>dataclass</code> دارد؟</li>
+    <li>باگ property/dataclass دقیقاً چرا رخ می‌داد و راه‌حل چه بود؟</li>
+    <li><code>validate()</code> در مورد شش مدل ریسک تطبیقی چه قانونی را اجرا می‌کند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>BotConfig</code> یک dataclass بزرگ با <code>slots</code> است که تقریباً هر رفتار قابل
+    تنظیم پروژه را در خود دارد، با یک متد <code>validate()</code> جامع به‌عنوان تنها دروازهٔ
+    سازگاری. یک باگ واقعی و رفع‌شدهٔ تعامل property/dataclass در همین فایل، درس خوبی از حساسیت
+    ترتیب اجرای کد در پایتون است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="03_execution_flow.html"><span class="dir">→ فصل قبل</span>جریان اجرا</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="05_data_models.html"><span class="dir">فصل بعد ←</span>مدل‌های داده</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۳ — Paper Broker و چرخهٔ Pending Order | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۳ از ۲۰</div>
+    <h1>Paper Broker و چرخهٔ Pending Order</h1>
+    <p class="chapter-sub">تمام state machine سفارش معلق — از ساخته‌شدن تا پر شدن یا لغو — با ارجاع دقیق به هر تابع.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#states">حالت‌های واقعی lifecycle_state</a></li>
+      <li><a href="#diagram">نمودار کامل چرخهٔ عمر</a></li>
+      <li><a href="#active-vs-lifecycle">active در برابر lifecycle_state</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: چرخهٔ Pending Order</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    <code>PaperBroker</code> بزرگ‌ترین کلاس پروژه است چون تقریباً همهٔ منطق قبلی (فصل‌های ۶ تا ۱۲)
+    را در یک شیء دارای وضعیت (stateful) هماهنگ می‌کند. این فصل روی یک بخش خاص و حیاتی از آن
+    تمرکز می‌کند: چرخهٔ عمر کامل یک سفارش معلق (<code>PendingOrder</code>).
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/paper.py</code> — کل کلاس <code>PaperBroker</code> (۱۲۰۹ خط)، با تمرکز روی فیلد <code>lifecycle_state</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۵، ۱۰</dd>
+  </div>
+
+  <h2 id="states">حالت‌های واقعی lifecycle_state</h2>
+  <p>هشت مقدار دقیق (رشته‌ای) که <code>PendingOrder.lifecycle_state</code> واقعاً به خود می‌گیرد، مستقیم از کد:</p>
+  <table>
+    <thead><tr><th>حالت</th><th>چگونه وارد می‌شود</th></tr></thead>
+    <tbody>
+      <tr><td><code>"formed"</code></td><td>ساخت، فقط اگر <code>entry_lifecycle_enabled</code> (تجربی) فعال باشد</td></tr>
+      <tr><td><code>"accepted"</code></td><td>فقط با ویژگی تجربی: قیمت از اکسترمم کندل شکل‌گیری OB عبور کند</td></tr>
+      <tr><td><code>"armed"</code></td><td>ساخت (پیش‌فرض)، یا از <code>"accepted"</code> با بازگشت قیمت</td></tr>
+      <tr><td><code>"filled"</code></td><td>پر شدن موفق در <code>_open</code> — تنها مسیر به یک پوزیشن واقعی</td></tr>
+      <tr><td><code>"invalidated"</code></td><td>ابطال OB والد (<code>cancel_ob</code>) یا حذف break_kind از تنظیمات (<code>reconcile_entry_filters</code>)</td></tr>
+      <tr><td><code>"cancelled_trend"</code></td><td>تغییر Trend به جهت ناسازگار یا خنثی (<code>update_m5_trend</code>)</td></tr>
+      <tr><td><code>"rejected_sizing"</code></td><td>حجم محاسبه‌شده نامعتبر بود (فصل ۱۱)</td></tr>
+      <tr><td><code>"rejected_trend"</code></td><td>بازبررسی نهایی Trend در لحظهٔ پر شدن شکست خورد</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="diagram">نمودار کامل چرخهٔ عمر</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 920 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="چرخه عمر Pending Order">
+      <defs><marker id="a13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5aa9ff"/></marker></defs>
+      <style>.b{fill:#1b2028;stroke:#2a3140;} .t{fill:#e7ebf3;font-size:11.5px;font-family:sans-serif;text-anchor:middle;} .term{fill:#3a1220;stroke:#c9406f;} .win{fill:#123a2e;stroke:#2bb083;} .e{stroke:#5aa9ff;stroke-width:1.3;fill:none;marker-end:url(#a13);} .lbl{fill:#9aa5b8;font-size:9.5px;font-family:sans-serif;text-anchor:middle;}</style>
+
+      <rect x="20" y="150" width="110" height="40" class="b" rx="8"/><text x="75" y="174" class="t">formed*</text>
+      <rect x="180" y="150" width="110" height="40" class="b" rx="8"/><text x="235" y="174" class="t">accepted*</text>
+      <rect x="340" y="150" width="120" height="40" class="b" rx="8" stroke="#7ee2b8"/><text x="400" y="174" class="t">armed</text>
+      <rect x="540" y="150" width="120" height="40" class="win"/><text x="600" y="174" class="t">filled</text>
+
+      <rect x="340" y="30" width="150" height="36" class="term"/><text x="415" y="53" class="t" font-size="10">invalidated</text>
+      <rect x="340" y="270" width="150" height="36" class="term"/><text x="415" y="293" class="t" font-size="10">cancelled_trend</text>
+      <rect x="540" y="30" width="150" height="36" class="term"/><text x="615" y="53" class="t" font-size="10">rejected_sizing</text>
+      <rect x="540" y="270" width="150" height="36" class="term"/><text x="615" y="293" class="t" font-size="10">rejected_trend</text>
+
+      <path class="e" d="M130,170 L180,170"/><text x="155" y="163" class="lbl">extension</text>
+      <path class="e" d="M290,170 L340,170"/><text x="315" y="163" class="lbl">retrace</text>
+      <path class="e" d="M20,170 L20,170"/>
+      <path class="e" d="M460,170 L540,170"/><text x="500" y="163" class="lbl">_open موفق</text>
+
+      <path class="e" d="M400,150 L415,66"/><text x="440" y="105" class="lbl">ابطال OB والد</text>
+      <path class="e" d="M400,190 L415,270"/><text x="440" y="235" class="lbl">تغییر Trend</text>
+      <path class="e" d="M600,150 L615,66"/><text x="650" y="105" class="lbl">حجم نامعتبر</text>
+      <path class="e" d="M600,190 L615,270"/><text x="650" y="235" class="lbl">recheck نهایی</text>
+    </svg>
+    <div class="diagram-caption">
+      * حالت‌های <code>formed</code>/<code>accepted</code> فقط با ویژگی تجربی <code>entry_lifecycle_enabled</code> قابل دسترسی‌اند؛
+      در حالت پیش‌فرض هر سفارش مستقیماً با <code>armed</code> شروع می‌شود.
+    </div>
+  </div>
+
+  <h2 id="active-vs-lifecycle">active در برابر lifecycle_state</h2>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی</span>
+    فیلد <code>active: bool</code> تنها دروازهٔ واقعی و همیشه‌بررسی‌شده است — <code>_active_pending()</code>
+    فقط روی همین فیلد فیلتر می‌کند، نه روی <code>lifecycle_state</code>. اما حداقل دو مسیر غیرفعال‌سازی
+    وجود دارد که <code>active=False</code> می‌کنند <strong>بدون</strong> به‌روزرسانی
+    <code>lifecycle_state</code> متناظر: (۱) داخل <code>process_tick</code>، وقتی قیمت پیش از رسیدن
+    به Entry از Stop عبور کرده باشد؛ (۲) بررسی دفاعیِ «فاصلهٔ منفی» در شاخهٔ Sweep &amp; Reclaim تیکی.
+    در این دو حالت، <code>lifecycle_state</code> همچنان مقدار قبلی خود (معمولاً <code>"armed"</code>)
+    را نگه می‌دارد. نتیجه: برای «آیا این سفارش هنوز قابل‌معامله است»، همیشه به <code>active</code>
+    اعتماد کنید؛ <code>lifecycle_state</code> یک برچسب توصیفیِ تلاش‌محور برای گزارش‌گیری است، نه
+    منبع حقیقتِ کامل و جامع.
+  </div>
+
+  <h2 id="lab">آزمایشگاه تعاملی: چرخهٔ Pending Order</h2>
+  <div class="lab"><div id="lab-pending-lifecycle"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/paper.py</code> → <code class="small">PaperBroker.add_ob</code>،
+    <code class="small">update_m5_trend</code>، <code class="small">cancel_ob</code>،
+    <code class="small">_open</code>. سناریوها از پیش تعریف‌شده و کنترل‌شده‌اند تا تمام مسیرهای
+    اصلی state machine را با داده‌های ایمن (بدون داده تاریخی واقعی) نشان دهند.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>State machine با رشته به‌جای Enum:</strong> استفاده از رشته‌های ساده
+    (<code>"armed"</code>, <code>"filled"</code>...) به‌جای یک <code>Enum</code> رسمی برای
+    <code>lifecycle_state</code> انعطاف بیشتری در persistence/سازگاری با نسخه‌های قدیمی می‌دهد
+    (فصل ۵/۱۶)، اما مسئولیت هم‌خوانی این رشته‌ها با کد را کاملاً به عهدهٔ توسعه‌دهنده می‌گذارد —
+    دقیقاً همان‌جایی که ناهماهنگی <code>active</code>/<code>lifecycle_state</code> بالا از آن ناشی می‌شود.
+  </p>
+  <p>
+    <strong>«منبع حقیقت واحد» (Single Source of Truth):</strong> وقتی دو فیلد به‌ظاهر هم‌پوشان
+    وجود دارند (<code>active</code> و <code>lifecycle_state</code>)، باید همیشه مشخص باشد کدام‌یک
+    «رسمی» است — در این کلاس آن نقش را <code>active</code> بازی می‌کند.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فیلتر کردن سفارش‌های قابل‌معامله بر اساس <code>lifecycle_state == "armed"</code> به‌تنهایی، بدون بررسی <code>active</code> — ممکن است سفارش‌های عملاً غیرفعال را هم شامل شود.</li>
+    <li>تصور اینکه <code>"formed"</code>/<code>"accepted"</code> حالت‌های معمول‌اند — فقط پشت پرچم آزمایشی <code>entry_lifecycle_enabled</code> قابل مشاهده‌اند.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (پیشرفته)</h4>
+    <p>سناریوی «Sweep بدون Reclaim» را در آزمایشگاه اجرا کنید. سفارش نهایتاً در کدام حالت باقی
+    می‌ماند؟ آیا <code>lifecycle_state</code> واقعاً منعکس‌کنندهٔ اینکه سفارش دیگر قابل‌پر شدن
+    نیست هست، یا باید به <code>active</code> نگاه کرد؟</p>
+    <details><summary>راهنما</summary><p class="hint">به بخش «رفتار نیازمند بررسی» بالا برگردید — این دقیقاً همان سناریویی است که ناهماهنگی را آشکار می‌کند.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>هشت مقدار واقعی <code>lifecycle_state</code> را نام ببرید.</li>
+    <li>چرا <code>_active_pending()</code> روی <code>lifecycle_state</code> فیلتر نمی‌کند؟</li>
+    <li>دو مسیری که <code>active=False</code> می‌کنند بدون به‌روزرسانی <code>lifecycle_state</code> کدام‌اند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    یک سفارش معلق از <code>"armed"</code> (یا با ویژگی تجربی، <code>"formed"→"accepted"→"armed"</code>)
+    شروع می‌شود و به یکی از پنج مقصد نهایی می‌رسد: <code>filled</code>، یا یکی از چهار نوع رد/لغو.
+    فیلد <code>active</code>، نه <code>lifecycle_state</code>، همیشه دروازهٔ واقعی «آیا این سفارش
+    هنوز زنده است» است.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="12_take_profit_breakeven.html"><span class="dir">→ فصل قبل</span>Take Profit و Breakeven</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="14_full_trade_lifecycle.html"><span class="dir">فصل بعد ←</span>چرخهٔ کامل یک معامله</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-pending-lifecycle",
+    experimentId: "pending_order_lifecycle",
+    title: "دنبال کردن چرخهٔ عمر یک سفارش معلق",
+    goal: "یک سناریوی از پیش تعریف‌شده انتخاب کنید و timeline کامل تغییرات lifecycle_state و دلیل هرکدام را ببینید.",
+    sourceRef: "فایل: pine_ob_bot/paper.py — کلاس: PaperBroker (add_ob, update_m5_trend, cancel_ob, _open)",
+    fields: [
+      { name: "scenario", label: "سناریو", type: "select", default: "trend_flip",
+        options: [
+          { value: "stable_trend_fill", label: "Trend ثابت → پر شدن عادی" },
+          { value: "trend_flip", label: "Trend تغییر می‌کند → لغو" },
+          { value: "sweep_no_reclaim", label: "Sweep بدون Reclaim" },
+          { value: "sweep_and_reclaim", label: "Sweep و Reclaim موفق" },
+          { value: "ob_invalidated", label: "Order Block باطل می‌شود" }
+        ] },
+      { name: "entry_mode", label: "حالت ورود", type: "select", default: "limit",
+        options: [ { value: "limit", label: "Limit ساده" }, { value: "sweep_reclaim", label: "Sweep and Reclaim" } ] }
+    ]
+  });
+</script>
+</body>
+</html>

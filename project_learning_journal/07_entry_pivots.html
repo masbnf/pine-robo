@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۷ — Entry Pivot | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۷ از ۲۰</div>
+    <h1>Entry Pivot</h1>
+    <p class="chapter-sub">یک Pivot محلی، کلاسیک و کاملاً مستقل از Trend — فقط برای زمان‌بندی ورود.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#why">چرا یک Pivot دوم و جدا؟</a></li>
+      <li><a href="#code">کد: ClassicEntryPivotDetector.process</a></li>
+      <li><a href="#age">تازگی (Freshness) و سن Pivot</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی: Entry Pivot</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    فصل قبل یک Pivot دیدیم (Trend Swing). این فصل یک Pivot <strong>کاملاً متفاوت</strong> را معرفی
+    می‌کند که هیچ‌وقت روی Trend اثر نمی‌گذارد و فقط برای «آیا این لحظه زمان مناسبی برای پذیرفتن یک
+    ورودی است» استفاده می‌شود.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/entry_pivot.py</code> (۱۱۱ خط، کامل)</dd>
+    <dt>پیش‌نیاز</dt><dd>فصل ۶</dd>
+  </div>
+
+  <h2 id="why">چرا یک Pivot دوم و جدا؟</h2>
+  <p>
+    Trend Swing (فصل ۶) با یک پنجرهٔ <strong>متقارن</strong> (چپ = راست = <code>trend_swing_length</code>)
+    کار می‌کند و هدفش تشخیص ساختار بزرگ بازار است. Entry Pivot اما یک detector کلاسیک و کاملاً
+    مستقل است، با پنجره‌های <strong>نامتقارن مجاز</strong> (<code>entry_pivot_left</code>،
+    <code>entry_pivot_right</code>، پیش‌فرض هر دو ۵) و هدفش فقط این است: «آخرین نقطهٔ برگشت محلی
+    قیمت کجا بود، تا زمان‌بندی ورود روی یک Order Block از قبل تأیید‌شده را بهتر تنظیم کنیم».
+  </p>
+  <p>
+    این دو Pivot detector هیچ‌گاه با هم صحبت نمی‌کنند — <code>ClassicEntryPivotDetector</code>
+    هرگز <code>current_m5_trend</code> را نمی‌خواند یا تغییر نمی‌دهد.
+  </p>
+
+  <h2 id="code">کد: ClassicEntryPivotDetector.process</h2>
+  <div class="code-path">pine_ob_bot/entry_pivot.py — ClassicEntryPivotDetector.process (خلاصه‌شده)</div>
+  <pre><code class="language-python">def process(self, candle: Candle) -> list[EntryPivot]:
+    self.candles.append(candle)
+    local_i = len(self.candles) - 1
+    candidate_local = local_i - self.right_bars
+    if candidate_local < self.left_bars:
+        return []  # هنوز کندل چپ کافی نیست
+
+    left = self.candles[candidate_local - self.left_bars: candidate_local]
+    right = self.candles[candidate_local + 1: candidate_local + 1 + self.right_bars]
+    candidate = self.candles[candidate_local]
+
+    found = []
+    if all(candidate.high > c.high for c in left + right):
+        found.append(EntryPivot(kind=PIVOT_HIGH, price=candidate.high, ...))
+    if all(candidate.low < c.low for c in left + right):
+        found.append(EntryPivot(kind=PIVOT_LOW, price=candidate.low, ...))
+    return found</code></pre>
+  <p>
+    خط به خط: <code>candidate_local = local_i - right_bars</code> یعنی کاندیدای Pivot همیشه
+    <code>right_bars</code> کندل عقب‌تر از کندل تازه‌رسیده است — این «پنجرهٔ راست» همان تأخیر
+    تأییدی است که باید صبرش کنیم. شرط <code>all(candidate.high &gt; c.high ...)</code> از
+    نامساوی <strong>اکید</strong> استفاده می‌کند (<code>&gt;</code> نه <code>&gt;=</code>) — یعنی
+    تساوی هرگز به‌عنوان Pivot شمرده نمی‌شود. توجه کنید یک کندل واحد می‌تواند هم‌زمان هم
+    Pivot High و هم Pivot Low باشد (دو <code>if</code> جدا، نه <code>elif</code>).
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته — تأییدشده با تست</span>
+    <code>test_entry_pivot_freshness.py</code> صریحاً تأیید می‌کند که اندازهٔ پنجرهٔ چپ
+    (<code>left_bars</code>) هیچ اثری روی تأخیر تأیید ندارد — فقط <code>right_bars</code> تعیین
+    می‌کند «چند کندل باید صبر کنیم». پنجرهٔ چپ فقط مشخص می‌کند «کاندیدا باید از چند کندل قبل خودش
+    هم بالاتر/پایین‌تر باشد»، نه اینکه چقدر باید منتظرش بمانیم.
+  </div>
+
+  <h2 id="age">تازگی (Freshness) و سن Pivot</h2>
+  <p>
+    هر <code>EntryPivot</code> دو زمان دارد: <code>pivot_time</code> (زمان خودِ کندل کاندیدا — هرگز
+    نباید برای تصمیم معاملاتی استفاده شود، چون در آن لحظه هنوز تأیید نشده بود) و
+    <code>confirmed_at</code> (زمان کندلی که پنجرهٔ راست را بست — این همان چیزی است که منطق
+    معاملاتی باید از آن استفاده کند). در فصل ۱۰ می‌بینیم <code>PaperBroker.add_ob</code> چگونه سن
+    یک Pivot (بر حسب کندل، از لحظهٔ تأیید تا لحظهٔ فرم‌شدن Order Block) را محاسبه و در برابر
+    <code>cfg.max_entry_pivot_age_bars</code> بررسی می‌کند — یک Pivot خیلی قدیمی «Stale» شمرده و رد می‌شود.
+  </p>
+
+  <h2 id="lab">آزمایشگاه تعاملی: Entry Pivot</h2>
+  <div class="lab"><div id="lab-entry-pivot"></div></div>
+  <p class="small">
+    بخش واقعی پروژه: <code class="small">pine_ob_bot/entry_pivot.py</code> → کلاس
+    <code class="small">ClassicEntryPivotDetector</code>، متد <code class="small">process</code>.
+  </p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>Frozen dataclass:</strong> <code>EntryPivot</code> با <code>@dataclass(frozen=True,
+    slots=True)</code> تعریف شده — یعنی بعد از ساخته‌شدن، هیچ فیلدش قابل تغییر نیست. این برای یک
+    رویداد تاریخی (چیزی که در گذشته اتفاق افتاده و دیگر نباید عوض شود) انتخاب طبیعی است، برخلاف
+    <code>PendingOrder</code> که عمداً قابل‌تغییر است چون در طول زمان state عوض می‌کند.
+  </p>
+  <p>
+    <strong>بافر لغزان با offset:</strong> <code>self.index_offset</code> اجازه می‌دهد بافر
+    <code>self.candles</code> از زمان به زمان کوتاه (trim) شود بدون آنکه اندیس‌های قبلاً منتشرشده
+    بی‌معنا شوند — الگویی رایج برای نگه‌داشتن فقط تاریخچهٔ لازم در برنامه‌های طولانی‌مدت.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>استفاده از <code>pivot_time</code> به‌جای <code>confirmed_at</code> برای هر تصمیم زمان‌بندی — این «نگاه به آینده» (look-ahead) است و در بک‌تست واقعی هرگز در آن لحظه در دسترس نبود.</li>
+    <li>تصور اینکه Entry Pivot می‌تواند جهت Trend را عوض کند — نمی‌تواند؛ کاملاً مشاهده‌گر و مستقل است.</li>
+    <li>گمان اینکه پنجرهٔ چپ بزرگ‌تر یعنی تأخیر تأیید بیشتر — طبق تست پروژه این‌طور نیست.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط)</h4>
+    <p>در آزمایشگاه بالا، <code>Pivot Right</code> را از ۵ به ۱ کاهش دهید. تعداد Pivotهای شناسایی‌شده
+    و سرعت تأیید آن‌ها چگونه تغییر می‌کند؟ آیا این باعث می‌شود Pivotهای «کاذب‌تری» شناسایی شوند؟</p>
+    <details><summary>راهنما</summary><p class="hint">پنجرهٔ راست کوچک‌تر یعنی شرط اکید سخت‌گیرانه‌تری روی کندل‌های کمتری اعمال می‌شود — رابطهٔ بین اندازهٔ پنجره و «قدرت» Pivot را در نظر بگیرید.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>Entry Pivot چه تفاوت بنیادینی با Trend Swing (فصل ۶) دارد؟</li>
+    <li>چرا <code>pivot_time</code> نباید برای تصمیم معاملاتی استفاده شود؟</li>
+    <li>طبق تست پروژه، کدام پارامتر (<code>left_bars</code> یا <code>right_bars</code>) تأخیر تأیید را تعیین می‌کند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    <code>ClassicEntryPivotDetector</code> یک Pivot کلاسیک، کاملاً مستقل از Trend، با نامساوی اکید
+    و پنجرهٔ نامتقارن مجاز است. سن و تازگی Pivotهای تأییدشده در فصل ۱۰ نقش کلیدی در قیف پذیرش
+    یک Order Block بازی می‌کنند.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="06_trend_detection.html"><span class="dir">→ فصل قبل</span>تشخیص Trend</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="08_order_blocks_bos_choch.html"><span class="dir">فصل بعد ←</span>Order Block و BOS/CHoCH</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-entry-pivot",
+    experimentId: "entry_pivot_detection",
+    title: "تشخیص Entry Pivot روی یک دنبالهٔ کندل ثابت",
+    goal: "با تغییر Pivot Left/Right و سقف سن Pivot، ببینید کدام کندل به Pivot تبدیل می‌شود، چه زمانی تأیید می‌شود و آیا Fresh یا Stale محسوب می‌شود.",
+    sourceRef: "فایل: pine_ob_bot/entry_pivot.py — کلاس: ClassicEntryPivotDetector — متد: process",
+    fields: [
+      { name: "scenario", label: "سناریوی کندل", type: "select", default: "pullback_10bar",
+        options: [
+          { value: "pullback_10bar", label: "۱۰ کندل با یک برگشت محلی واضح" },
+          { value: "choppy_range", label: "بازهٔ رنج نوسانی" }
+        ] },
+      { name: "pivot_left", label: "Pivot Left", type: "int", default: 5, min: 1, max: 15, step: 1,
+        help: "پارامتر: entry_pivot_left" },
+      { name: "pivot_right", label: "Pivot Right", type: "int", default: 5, min: 1, max: 15, step: 1,
+        help: "پارامتر: entry_pivot_right — تعیین‌کنندهٔ تأخیر تأیید" },
+      { name: "max_entry_pivot_age_bars", label: "حداکثر سن مجاز Pivot (کندل)", type: "int", default: 6, min: 1, max: 50, step: 1,
+        help: "پارامتر: max_entry_pivot_age_bars" }
+    ]
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>گزارش نهایی مستندسازی | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">گزارش نهایی</div>
+    <h1>گزارش نهایی مستندسازی</h1>
+    <p class="chapter-sub">فهرست کامل فایل‌های بررسی‌شده، پوشش هر فصل، بدهی‌های فنی مشاهده‌شده، نتیجهٔ تست‌ها، و پیشنهادهای ادامهٔ یادگیری.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب</summary>
+    <ol>
+      <li><a href="#scope">دامنهٔ کار</a></li>
+      <li><a href="#reviewed">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#mapping">نگاشت فایل ↔ فصل</a></li>
+      <li><a href="#ignored">فایل‌های نادیده‌گرفته‌شده و دلیل آن</a></li>
+      <li><a href="#ambiguous">بخش‌های مبهم یا ناقص</a></li>
+      <li><a href="#debt">بدهی‌های فنی مشاهده‌شده</a></li>
+      <li><a href="#lab">آزمایشگاه تعاملی — نتیجهٔ کنترل کیفیت</a></li>
+      <li><a href="#tests">نتیجهٔ اجرای تست‌ها</a></li>
+      <li><a href="#coverage">قابلیت‌ها: تست‌شده در برابر کم‌تست</a></li>
+      <li><a href="#linkqa">کنترل کیفیت لینک‌ها و ساختار</a></li>
+      <li><a href="#unchanged">تأیید عدم تغییر فایل‌های اصلی</a></li>
+      <li><a href="#nextsteps">پیشنهاد ترتیب ادامهٔ یادگیری</a></li>
+      <li><a href="#improvements">پیشنهادهای بهبود پروژه</a></li>
+      <li><a href="#honesty">افشای صادقانهٔ محدودیت‌ها</a></li>
+      <li><a href="#files">فهرست فایل‌های ساخته‌شده</a></li>
+    </ol>
+  </details>
+
+  <h2 id="scope">دامنهٔ کار</h2>
+  <p>
+    این ژورنال پکیج <code>pine_ob_bot/</code> (۲۲ فایل ماژول + ۱۰ فایل تست، مجموعاً ۴٬۲۸۱+۱٬۸۰۸ خط) و
+    اسکریپت اجرایی <code>run_pine_ob_paper.py</code> را مستند می‌کند. یک پروژهٔ کاملاً مستقل و دیگر هم
+    در ریشهٔ همین ریپازیتوری وجود دارد (<code>config/settings.py</code>، <code>backtest/engine.py</code>،
+    <code>data/loader.py</code>، <code>strategy/</code>، <code>smc/</code>) که موضوع این مستندات نیست —
+    تنها استثنا <code>data/loader.py</code> است که <code>pine_ob_bot/historical.py</code> برای خواندن
+    CSV از آن import می‌کند (وابستگی متقابل تأییدشده، در فصل ۱ و ۲ مستند شده).
+  </p>
+
+  <h2 id="reviewed">فایل‌های بررسی‌شده</h2>
+  <table>
+    <thead><tr><th>فایل</th><th>وضعیت</th></tr></thead>
+    <tbody>
+      <tr><td><code>pine_ob_bot/__init__.py</code></td><td>بررسی و مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/app.py</code></td><td>بررسی شد (ارکستراسیون زنده)؛ مستند اما اجرا نشد — دلیل در بخش «نادیده‌گرفته‌شده»</td></tr>
+      <tr><td><code>pine_ob_bot/cli_risk.py</code></td><td>بررسی و مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/config.py</code></td><td>بررسی کامل و مستند شد (تمام فیلدها)</td></tr>
+      <tr><td><code>pine_ob_bot/dashboard_server.py</code></td><td>بررسی شد؛ مستند اما اجرا نشد (سرور جداگانه، خارج از دامنهٔ آزمایشگاه)</td></tr>
+      <tr><td><code>pine_ob_bot/demo_executor.py</code></td><td>بررسی شد؛ عمداً هرگز در آزمایشگاه import/اجرا نمی‌شود (ریسک اتصال MT5)</td></tr>
+      <tr><td><code>pine_ob_bot/entry_pivot.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/historical.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه (mini_backtest) اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/liquidity_context.py</code></td><td>بررسی شد؛ در فصل ۲ (جدول ماژول‌ها) پوشش داده شد، بدون فصل اختصاصی</td></tr>
+      <tr><td><code>pine_ob_bot/market_recorder.py</code></td><td>بررسی شد؛ در فصل ۱۶ خلاصه شد</td></tr>
+      <tr><td><code>pine_ob_bot/models.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/mt5_feed.py</code></td><td>بررسی شد؛ عمداً هرگز در آزمایشگاه import/اجرا نمی‌شود</td></tr>
+      <tr><td><code>pine_ob_bot/mtf_context.py</code></td><td>بررسی شد؛ در فصل ۲ پوشش داده شد، بدون فصل اختصاصی</td></tr>
+      <tr><td><code>pine_ob_bot/paper.py</code></td><td>بررسی کامل و عمیق (کانون پروژه) — مستند در ۹ فصل و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/pine_engine.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/position_sizing.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/report_worker.py</code></td><td>بررسی شد؛ در فصل ۱۶ مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/reporting.py</code></td><td>بررسی و در فصل ۱۶ مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/storage.py</code></td><td>بررسی و در فصل ۱۶ مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/structure_context.py</code></td><td>بررسی و در فصل ۸ (displacement) مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/tick_historical.py</code></td><td>بررسی و در فصل‌های ۳ و ۱۵ مستند شد</td></tr>
+      <tr><td><code>pine_ob_bot/trend_filter.py</code></td><td>بررسی کامل، مستند و در آزمایشگاه اجرا شد</td></tr>
+      <tr><td><code>pine_ob_bot/tests/*.py</code> (۱۰ فایل)</td><td>هر فایل تک‌به‌تک در فصل ۱۷ توضیح داده شد و با ران‌ر دستی اجرا شد (بخش «نتیجهٔ تست‌ها»)</td></tr>
+      <tr><td><code>run_pine_ob_paper.py</code></td><td>بررسی کامل، جدول کامل پرچم‌های CLI در فصل ۱۶</td></tr>
+      <tr><td><code>docs/ROBOT_TECHNICAL_GUIDE.md</code></td><td>بررسی شد؛ شمارهٔ خط‌های ذکرشده در آن نسبت به کد فعلی قدیمی/نامنطبق است (در فصل‌های مرتبط یادآوری شده)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="mapping">نگاشت فایل ↔ فصل</h2>
+  <p>جدول کامل در فصل ۲ (<a href="02_architecture.html">معماری و ماژول‌ها</a>) آمده؛ خلاصهٔ فصل‌های اختصاصی:</p>
+  <table>
+    <thead><tr><th>فصل</th><th>فایل(های) اصلی مستندشده</th></tr></thead>
+    <tbody>
+      <tr><td>۰۱ کلیات</td><td><code>__init__.py</code>، مرور کلی</td></tr>
+      <tr><td>۰۲ معماری</td><td>همهٔ ۲۲ ماژول (سطح مرور)</td></tr>
+      <tr><td>۰۳ جریان اجرا</td><td><code>app.py</code>، <code>historical.py</code>، <code>tick_historical.py</code></td></tr>
+      <tr><td>۰۴ پیکربندی</td><td><code>config.py</code></td></tr>
+      <tr><td>۰۵ مدل‌های داده</td><td><code>models.py</code></td></tr>
+      <tr><td>۰۶ تشخیص Trend</td><td><code>pine_engine.py</code>، <code>trend_filter.py</code></td></tr>
+      <tr><td>۰۷ Entry Pivot</td><td><code>entry_pivot.py</code></td></tr>
+      <tr><td>۰۸ Order Block/BOS/CHoCH</td><td><code>pine_engine.py</code>، <code>structure_context.py</code>، <code>models.py</code></td></tr>
+      <tr><td>۰۹ Sweep and Reclaim</td><td><code>paper.py</code> (<code>_sweep_reclaim_window</code>)</td></tr>
+      <tr><td>۱۰ قیف ورود</td><td><code>paper.py</code> (<code>add_ob</code>)</td></tr>
+      <tr><td>۱۱ Risk Sizing</td><td><code>position_sizing.py</code></td></tr>
+      <tr><td>۱۲ TP/Breakeven</td><td><code>paper.py</code> (<code>_apply_breakeven</code>)</td></tr>
+      <tr><td>۱۳ Pending Order</td><td><code>paper.py</code>، <code>models.py</code></td></tr>
+      <tr><td>۱۴ چرخهٔ کامل معامله</td><td><code>paper.py</code>، <code>pine_engine.py</code>، <code>app.py</code>، <code>mt5_feed.py</code> (ارجاعی)</td></tr>
+      <tr><td>۱۵ بک‌تست</td><td><code>historical.py</code>، <code>tick_historical.py</code></td></tr>
+      <tr><td>۱۶ گزارش‌گیری/CLI</td><td><code>reporting.py</code>، <code>report_worker.py</code>، <code>storage.py</code>، <code>market_recorder.py</code>، <code>dashboard_server.py</code>، <code>cli_risk.py</code>، <code>run_pine_ob_paper.py</code></td></tr>
+      <tr><td>۱۷ تست‌نویسی</td><td>هر ۱۰ فایل <code>pine_ob_bot/tests/*.py</code></td></tr>
+      <tr><td>۱۸ آزمایشگاه تعاملی</td><td><code>serve_journal.py</code>، <code>lab_experiments.py</code>، <code>lab-client.js</code></td></tr>
+      <tr><td>۱۹ تمرین تجمیعی</td><td>ارجاعی به فصل‌های قبل</td></tr>
+      <tr><td>۲۰ واژه‌نامه</td><td>ارجاعی</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="ignored">فایل‌های نادیده‌گرفته‌شده و دلیل آن</h2>
+  <p>هیچ فایل پایتونیِ <code>pine_ob_bot/</code> از تحلیل کنار گذاشته نشد. آنچه <em>اجرا</em> نشد (فقط خوانده و توضیح داده شد):</p>
+  <ul>
+    <li><code>mt5_feed.py</code>، <code>demo_executor.py</code> — اتصال واقعی به MetaTrader 5؛ طبق الزامات امنیتی صریح ژورنال هرگز نباید در آزمایشگاه اجرا شوند.</li>
+    <li><code>app.py</code> (مسیر زنده)، <code>dashboard_server.py</code> — نیاز به یک event loop/سرور جداگانهٔ بلندمدت دارند که خارج از مدل «هر آزمایش کوتاه و مستقل» آزمایشگاه است.</li>
+  </ul>
+  <p>خارج از دامنهٔ کامل: پروژهٔ مستقل ریشهٔ ریپو (<code>config/settings.py</code>، <code>backtest/engine.py</code>، <code>strategy/</code>، <code>smc/</code>، <code>tradingview/</code>) — طبق تصمیم دامنه‌بندیِ فاز ۰، این یک بات جدا با معماری متفاوت است.</p>
+
+  <h2 id="ambiguous">بخش‌های مبهم یا ناقص</h2>
+  <p>موارد زیر با برچسب «رفتار نیازمند بررسی» در فصل‌های مربوطه علامت‌گذاری شده‌اند (استنباط‌شده از ساختار کد، نه ادعای قطعی وجود باگ):</p>
+  <ul>
+    <li><strong>فصل ۱۰/۱۹:</strong> <code>process_tick</code>/<code>process_candle</code> در <code>paper.py</code> به نظر می‌رسد فقط وقتی صفر پوزیشن باز است، فیل‌های جدید را ارزیابی می‌کنند — یعنی رفتار واقعی <code>max_open_positions &gt; 1</code> تست‌نشده و نامشخص می‌ماند.</li>
+    <li><strong>فصل ۱۳:</strong> حداقل دو مسیر غیرفعال‌سازیِ <code>PendingOrder</code> فیلد <code>active</code> را به <code>False</code> می‌برند بدون به‌روزرسانی همزمان <code>lifecycle_state</code> — <code>active</code> مرجع نهایی است، اما این ناهماهنگی می‌تواند مصرف‌کنندگان بعدی (مثل گزارش‌گیری) را که فقط <code>lifecycle_state</code> را می‌خوانند گمراه کند.</li>
+    <li><strong>فصل ۱۶:</strong> <code>ReportWorker.close()</code> یک حالت لبه دارد که در صورت shutdown هم‌زمان با نوشتن آخرین رکورد، ممکن است یک رویداد drop شود (استنباط از ساختار کد، نه رگرسیون تأییدشده با تست).</li>
+    <li><strong>docs/ROBOT_TECHNICAL_GUIDE.md:</strong> شمارهٔ خط‌های ذکرشده در این فایل قدیمی، نسبت به کد فعلی مطابقت ندارند — سند به‌روزرسانی نشده است (این ژورنال جایگزین دقیق‌تری برای آن است).</li>
+  </ul>
+
+  <h2 id="debt">بدهی‌های فنی مشاهده‌شده</h2>
+  <ul>
+    <li><strong>فصل ۸:</strong> <code>PineSwingOBEngine.order_blocks</code> سقف ثابت ۱۰۰ آیتم دارد و در صورت پر شدن، قدیمی‌ترین آیتم بدون توجه به <code>active</code> بودنش حذف می‌شود — یعنی در تئوری یک OB هنوز فعال می‌تواند صرفاً به‌خاطر طول لیست حذف شود.</li>
+    <li><strong>فصل ۴:</strong> یک باگ قبلاً-رفع‌شدهٔ برخورد <code>dataclass</code>/<code>@property</code> در <code>config.py</code> (<code>BotConfig.swing_length</code> اکنون به‌عنوان <code>property</code> جداگانه بعد از تعریف کلاس اضافه شده) — به‌عنوان یک نمونهٔ آموزشیِ واقعی از این ریسک طراحی مستند شده، نه یک مشکل باز.</li>
+    <li><strong>فصل ۹:</strong> رفتار <code>sweep_reclaim_max_bars == 1</code> به‌صراحت به‌عنوان «قاعدهٔ اصلی، بیت-به-بیت یکسان» مستند شده و مقادیر بزرگ‌تر به‌عنوان «قابلیت آزمایشی» علامت‌گذاری شده‌اند.</li>
+    <li><strong>سرور آزمایشگاه (این جلسه):</strong> در بازبینی نهایی مشخص شد <code>_safe_static_path</code> در نسخهٔ اولیه فقط نام‌های شروع‌شونده با <code>_</code> و مسیرهای <code>runtime_data</code> را مسدود می‌کرد — یعنی خودِ <code>serve_journal.py</code> و <code>lab_experiments.py</code> از طریق GET قابل دانلود بودند. <strong>این مورد در همین جلسه رفع شد</strong> (بلاک صریح پسوند <code>.py</code>؛ کد فعلی در فصل ۱۸ همین نسخهٔ رفع‌شده را مستند می‌کند).</li>
+  </ul>
+
+  <h2 id="lab">آزمایشگاه تعاملی — نتیجهٔ کنترل کیفیت</h2>
+  <p>سرور محلی واقعی (<code>serve_journal.py</code>) بالا آورده شد و هر ۱۰ آزمایش با مقادیر پیش‌فرض از طریق HTTP واقعی (نه فراخوانی مستقیم پایتون) اجرا و بررسی شدند:</p>
+  <table>
+    <thead><tr><th>#</th><th>experiment_id</th><th>نتیجه</th></tr></thead>
+    <tbody>
+      <tr><td>۱</td><td><code>candle_builder</code></td><td>موفق</td></tr>
+      <tr><td>۲</td><td><code>trend_detection_basic</code></td><td>موفق</td></tr>
+      <tr><td>۳</td><td><code>entry_pivot_detection</code></td><td>موفق</td></tr>
+      <tr><td>۴</td><td><code>bos_choch_classifier</code></td><td>موفق</td></tr>
+      <tr><td>۵</td><td><code>sweep_and_reclaim</code></td><td>موفق</td></tr>
+      <tr><td>۶</td><td><code>risk_sizing_calculator</code></td><td>موفق</td></tr>
+      <tr><td>۷</td><td><code>take_profit_calculator</code></td><td>موفق</td></tr>
+      <tr><td>۸</td><td><code>breakeven_simulator</code></td><td>موفق (پس از رفع باگی که در همین جلسه پیدا شد — پایین را ببینید)</td></tr>
+      <tr><td>۹</td><td><code>pending_order_lifecycle</code></td><td>موفق</td></tr>
+      <tr><td>۱۰</td><td><code>mini_backtest</code></td><td>موفق (پس از رفع دو مشکل — پایین را ببینید)</td></tr>
+    </tbody>
+  </table>
+  <p><strong>باگ‌های پیداشده و رفع‌شده در همین جلسه:</strong></p>
+  <ol>
+    <li><code>breakeven_simulator</code>: <code>PaperPosition</code> ساخته‌شده در <code>_simulate_breakeven</code> هرگز به <code>broker.positions</code> اضافه نمی‌شد، در حالی که <code>PaperBroker._close()</code> بدون قید‌وشرط <code>self.positions.remove(p)</code> را صدا می‌زند — نتیجه یک <code>ValueError</code> بود. رفع شد با افزودن <code>broker.positions.append(pos)</code> بلافاصله پس از ساخت.</li>
+    <li><code>mini_backtest</code>: خروجی <code>profit_factor</code> می‌تواند <code>float('inf')</code> باشد (وقتی هیچ باختی رخ نداده) که در JSON استاندارد قابل سریالایز نیست. رفع شد با افزودن <code>_json_safe()</code> در <code>serve_journal.py</code> که مقادیر <code>inf</code>/<code>nan</code> را به رشته‌های امن (<code>"Infinity"</code>/<code>null</code>) تبدیل می‌کند، قبل از <code>json.dumps</code>.</li>
+    <li>مسدودنبودن دانلود <code>.py</code> از GET — شرح در بخش «بدهی‌های فنی» بالا.</li>
+  </ol>
+
+  <p><strong>تست‌های امنیتی/adversarial (همه با نتیجهٔ درست رد شدند):</strong></p>
+  <table>
+    <thead><tr><th>سناریو</th><th>نتیجهٔ مورد انتظار</th><th>نتیجهٔ واقعی</th></tr></thead>
+    <tbody>
+      <tr><td>experiment_id ناموجود</td><td>رد با پیام فارسی</td><td>✓ رد شد</td></tr>
+      <tr><td>فیلد ورودی اضافه/ناشناخته</td><td>رد کل درخواست</td><td>✓ رد شد</td></tr>
+      <tr><td>مقدار خارج از بازهٔ min/max</td><td>رد با پیام مرزی دقیق</td><td>✓ رد شد</td></tr>
+      <tr><td>رشتهٔ شبیه کد پایتون (<code>__import__(...)</code>) در یک فیلد متنی</td><td>ذخیره به‌عنوان رشتهٔ خام، بدون اجرا</td><td>✓ فقط داده، صفر اجرا</td></tr>
+      <tr><td>Path traversal در GET (<code>/../../../etc/passwd</code>)</td><td>۴۰۴</td><td>✓ ۴۰۴</td></tr>
+      <tr><td>دانلود <code>lab_experiments.py</code> از طریق GET</td><td>مسدود (بعد از رفع باگ فوق)</td><td>✓ ۴۰۴</td></tr>
+    </tbody>
+  </table>
+  <p>
+    بررسی شد که <code>runtime_data/</code> پس از هر اجرا خالی می‌ماند (پاک‌سازی <code>shutil.rmtree</code> در
+    <code>finally</code> کار می‌کند)، هیچ فایلی خارج از <code>runtime_data/</code> نوشته نشد، و آزمایشگاه در
+    هیچ نقطه‌ای <code>mt5_feed.py</code>/<code>demo_executor.py</code>/<code>app.py</code>/<code>dashboard_server.py</code>
+    را import یا اجرا نکرد.
+  </p>
+
+  <h2 id="tests">نتیجهٔ اجرای تست‌ها</h2>
+  <div class="callout review">
+    <span class="callout-tag">رفتار نیازمند بررسی</span>
+    محیط sandbox این جلسه به اینترنت دسترسی ندارد؛ <code>pip install pytest</code> با خطای شبکه شکست خورد.
+    برای اجرای واقعیِ هر دو مجموعه تست، یک ران‌ر حداقلیِ سازگار با pytest نوشته شد (بدون هیچ وابستگی
+    خارجی) که توابع <code>def test_x():</code> را مستقیماً فراخوانی می‌کند و برای دو fixture مورد نیاز
+    (<code>tmp_path</code>، <code>monkeypatch</code>) شبیه‌ساز سبک فراهم می‌کند. نتیجه باید روی
+    <code>pytest</code> واقعی هم یکسان باشد چون هیچ رفتار تست تغییر نکرده — فقط مکانیزم اجرا جایگزین شده است.
+  </div>
+  <table>
+    <thead><tr><th>مجموعه تست</th><th>تعداد</th><th>نتیجه</th></tr></thead>
+    <tbody>
+      <tr><td><code>pine_ob_bot/tests/*.py</code> (۱۰ فایل، تست‌های خودِ ربات)</td><td>۸۰ تست</td><td>۸۰ PASS، ۰ FAIL</td></tr>
+      <tr><td><code>project_learning_journal/tests/test_lab_backend.py</code> (تست‌های خودِ آزمایشگاه)</td><td>۲۴ تست</td><td>۲۴ PASS، ۰ FAIL</td></tr>
+    </tbody>
+  </table>
+  <p><code>test_lab_backend.py</code> این موارد را پوشش می‌دهد: اجرای موفق آزمایش معتبر، رد experiment ناشناخته، رد فیلد اضافه، رد نوع دادهٔ غلط، رد مقدار خارج از بازه، رد فیلد اجباریِ جاافتاده، رد گزینهٔ نامعتبر در <code>select</code>، بی‌اثر بودن رشته‌های شبیه تزریق کد/دستور، مسدودسازی path traversal، مسدودسازی فایل‌های داخلی/<code>.py</code>/<code>runtime_data</code>، عدم نوشتن فایل خارج از <code>runtime_data</code>، پاک‌سازی صحیح پوشهٔ موقت <code>mini_backtest</code>، صحت ساختار JSON خروجی، صحت <code>_json_safe</code> روی مقادیر <code>inf</code>/<code>nan</code>، استقلال دو اجرای پیاپی با تنظیمات متفاوت (معادل حالت مقایسه)، و یک smoke test کامل که سرور واقعی را بالا می‌آورد و یک درخواست HTTP واقعی می‌فرستد.</p>
+
+  <h2 id="coverage">قابلیت‌ها: تست‌شده در برابر کم‌تست</h2>
+  <p><strong>پوشش قوی (تست اختصاصی دارند):</strong> جدول Trend (buy/sell × bullish/bearish/neutral)، دروازهٔ Trend در تمام مسیرهای فیل، ادغام موتور Trend با یک سناریوی دستی‌تأییدشده، سایزینگ ریسک (تمام دلایل رد + floor-never-round)، هم‌ارزی حجم Paper/Demo، Breakeven (هر دو مسیر تیک/کندل + عدم re-arm)، تازگی Entry Pivot (مرز inclusive)، پنجرهٔ Sweep&amp;Reclaim (هم‌ارزی با قانون پیش‌فرض N=1)، اجرای واقعی تیک Sweep&amp;Reclaim (بدون نگاه‌به‌آینده)، ممیزی سایهٔ Revival.</p>
+  <p><strong>پوشش کم/ناموجود (طبق فصل ۱۹، تمرین ۴.۳ و بخش «بخش‌های مبهم» بالا):</strong> رفتار <code>max_open_positions &gt; 1</code>، سناریوی برخورد سقف ۱۰۰-تاییِ <code>order_blocks</code>، حالت لبهٔ shutdown هم‌زمان در <code>ReportWorker.close()</code>، مسیرهای <code>lifecycle_state</code>ی که با <code>active=False</code> ناهماهنگ می‌مانند.</p>
+
+  <h2 id="linkqa">کنترل کیفیت لینک‌ها و ساختار</h2>
+  <ul>
+    <li>۲۱ فایل HTML فصل (۰۰ تا ۲۰) به‌علاوه همین گزارش — همه پیدا و بررسی شدند.</li>
+    <li>تمام لینک‌های داخلی (<code>href</code>) با یک اسکریپت خودکار بررسی شدند؛ تنها لینک ناموجودِ اولیه (ارجاع فصل ۰۰ به همین گزارش، پیش از ساخته‌شدنش) اکنون برطرف است — هیچ لینک شکستهٔ دیگری باقی نمانده.</li>
+    <li>زنجیرهٔ «فصل قبل/فصل بعد» تمام ۲۰ فصل به‌صورت خودکار بررسی و یک ناهماهنگی پیدا شد: فصل ۱۴ به‌جای فصل ۱۵، به فهرست لینک می‌داد (باقی‌ماندهٔ نسخهٔ قبل از نوشتن فصل ۱۵) — در همین جلسه رفع شد.</li>
+    <li>فصل‌های ۱۵ تا ۲۰ در <code>00_index.html</code> هنوز با وضعیت «به‌زودی» و غیرفعال علامت‌گذاری شده بودند با اینکه محتوایشان کامل بود — در همین جلسه به «آماده» و لینک فعال به‌روزرسانی شد؛ متن «وضعیت پوشش مستندات» هم به‌روز شد.</li>
+    <li>تمام صفحات با UTF-8 ذخیره شده‌اند و بدون اتصال اینترنت باز می‌شوند (بدون فراخوانی CDN؛ CSS/JS محلی در <code>assets/</code>).</li>
+  </ul>
+
+  <h2 id="unchanged">تأیید عدم تغییر فایل‌های اصلی</h2>
+  <p>
+    با <code>git diff --stat pine_ob_bot/ run_pine_ob_paper.py</code> تأیید شد که این دو مسیر هیچ تغییری
+    نسبت به آخرین commit ندارند (خروجی خالی). آخرین commit مؤثر روی <code>pine_ob_bot/</code> پیش از شروع
+    این کار مستندسازی بوده است. تمام خروجی‌های این جلسه — فصل‌ها، سرور آزمایشگاه، تست‌ها — فقط داخل
+    <code>project_learning_journal/</code> (پوشهٔ جدید و مستقل) ساخته شده‌اند.
+  </p>
+
+  <h2 id="nextsteps">پیشنهاد ترتیب ادامهٔ یادگیری</h2>
+  <ol>
+    <li>فصل‌های ۱۹ (تمرین‌های تجمیعی) را کامل انجام دهید — به‌ویژه سطح ۴ (تحلیل بدون تغییر رفتار) که مستقیماً با بدهی‌های فنی همین گزارش مرتبط است.</li>
+    <li>تمرین ۳.۱ فصل ۱۷ (نوشتن یک unit test واقعی برای مرز سنِ Pivot) را انجام دهید تا با الگوی Arrange/Act/Assert پروژه عملاً کار کرده باشید.</li>
+    <li>یکی از سه مورد «پوشش کم» بالا (ترجیحاً <code>max_open_positions &gt; 1</code>) را به‌صورت یک آزمایش دستی (نه لزوماً کد) بررسی کنید: چند سناریوی کاغذی طراحی کنید که رفتار واقعی را روشن کند.</li>
+    <li>تمرین فصل ۱۸ (افزودن یک experiment جدید به رجیستری) را انجام دهید — بهترین راه برای فهمیدن کامل معماری امنیتی آزمایشگاه، ساختن یک نمونهٔ کوچک از آن است.</li>
+    <li>در صورت دسترسی به اینترنت روی دستگاه خودتان، <code>pytest</code> واقعی را نصب و کل مجموعه (پروژه + آزمایشگاه) را با آن اجرا کنید تا با خروجی رسمی pytest (نه ران‌ر دستیِ این گزارش) هم آشنا شوید.</li>
+  </ol>
+
+  <h2 id="improvements">پیشنهادهای بهبود پروژه</h2>
+  <p>این‌ها پیشنهادند، نه ادعای وجود باگ قطعی — قضاوت نهایی با نگهدارندهٔ پروژه است:</p>
+  <ul>
+    <li>هم‌گام‌سازی صریح <code>lifecycle_state</code> در تمام مسیرهای غیرفعال‌سازی <code>PendingOrder</code> (فصل ۱۳) تا <code>active</code> و <code>lifecycle_state</code> هرگز واگرا نشوند.</li>
+    <li>یک تست هدفمند برای رفتار <code>max_open_positions &gt; 1</code> — یا تأیید صریح اینکه پشتیبانی نمی‌شود (و به‌روزرسانی مستند/کد برای رد صریح مقادیر بزرگ‌تر از ۱ به‌جای پذیرش خاموش).</li>
+    <li>سقف ۱۰۰-تاییِ <code>PineSwingOBEngine.order_blocks</code> را یا مستند صریح کنید (به‌عنوان یک محدودیت طراحی‌شده) یا آن را به حذفِ صرفاً OBهای غیرفعال محدود کنید.</li>
+    <li>به‌روزرسانی یا حذف شمارهٔ خط‌های قدیمی در <code>docs/ROBOT_TECHNICAL_GUIDE.md</code>، یا ارجاع آن به همین ژورنال به‌عنوان منبع به‌روز.</li>
+  </ul>
+
+  <h2 id="honesty">افشای صادقانهٔ محدودیت‌ها</h2>
+  <ul>
+    <li><strong>عدم نصب pytest واقعی:</strong> محیط sandbox این جلسه اجازهٔ دسترسی شبکه به PyPI را نداد. هر دو مجموعه تست (پروژه + آزمایشگاه) با یک ران‌ر دستیِ سازگار اجرا شدند که منطق هر تست را بدون تغییر فراخوانی می‌کند؛ این معادل عملکردیِ pytest است اما گزارش رسمی pytest (مثل خلاصهٔ رنگی یا traceback استاندارد آن) تولید نشد.</li>
+    <li><strong>محدودیت WAL در sandbox:</strong> در تلاش اولیهٔ اجرای <code>mini_backtest</code> در این sandbox خاص، فعال‌سازی <code>PRAGMA journal_mode=WAL</code> (در <code>pine_ob_bot/storage.py</code>) با خطای «disk I/O error» مواجه شد. با تست مستقیم <code>sqlite3</code> (کاملاً جدا از کد پروژه) روی همان مسیر مانت‌شده، تأیید شد این خطا مخصوص فایل‌سیستم شبکه‌ای این sandbox است (نبود پشتیبانی mmap/حافظهٔ مشترک لازم برای WAL) — نه یک ایراد در <code>pine_ob_bot</code> یا در آزمایشگاه. تست نهایی روی یک مسیر بازآفرینی‌شدهٔ کامل (شبیه‌سازی محیط واقعی) نشان داد <code>mini_backtest</code> کاملاً درست کار می‌کند؛ روی دیسک محلی واقعی کاربر (نه یک درایو شبکه‌ای مانت‌شده) این مشکل انتظار نمی‌رود رخ دهد.</li>
+    <li><strong>هم‌گام‌سازی مانت (sync lag):</strong> در حین این جلسه، چند بار فایل‌های ویرایش‌شده از طریق ابزار ویرایش، در دسترسیِ shell (bash) به همان فایل، به‌صورت موقت ناقص/قدیمی دیده شدند (پدیده‌ای شناخته‌شده در این محیط sandbox). برای دور زدن این مشکل، نسخه‌های تأییدشده و بازخوانی‌شدهٔ فایل‌ها در یک مسیر ایزولهٔ موقت (خارج از ریپو) بازسازی و آن‌جا اجرا/تست شدند؛ فایل نهاییِ واقعی در <code>project_learning_journal/</code> با محتوای یکسان و بررسی‌شده باقی مانده است.</li>
+    <li><strong>چند پوشهٔ موقتِ باقی‌مانده:</strong> در <code>project_learning_journal/runtime_data/</code>، دو پوشهٔ <code>lab_backtest_*</code> و یک فایل <code>.sqlite3-journal</code> از تست‌های اولیهٔ همین جلسه (پیش از رفع مشکل WAL) باقی مانده‌اند که به‌خاطر قفل سطح فایل‌سیستمِ sandbox (خطای «Operation not permitted») قابل حذف خودکار نبودند. این فایل‌ها بی‌ضرر و صرفاً باقی‌ماندهٔ آزمایش هستند (در دامنهٔ <code>runtime_data/</code> که از GET مسدود است)؛ در صورت تمایل کاربر می‌تواند دستی از فایل‌سیستم ویندوز پاک کند.</li>
+    <li><strong>بدون بررسی دستی مرورگر واقعی:</strong> صحت رندر بصری صفحات (چیدمان، فونت فارسی، RTL) در Chrome/Firefox واقعی به‌صورت خودکار بررسی نشد؛ فقط ساختار HTML/CSS/JS و پاسخ‌های API به‌صورت خودکار و از طریق curl/subprocess تأیید شدند.</li>
+  </ul>
+
+  <h2 id="files">فهرست فایل‌های ساخته‌شده</h2>
+  <table>
+    <thead><tr><th>مسیر</th><th>توضیح</th></tr></thead>
+    <tbody>
+      <tr><td><code>project_learning_journal/00_index.html</code> … <code>20_glossary.html</code></td><td>۲۱ فصل آموزشی</td></tr>
+      <tr><td><code>project_learning_journal/documentation_report.html</code></td><td>همین گزارش</td></tr>
+      <tr><td><code>project_learning_journal/assets/css/journal.css</code></td><td>استایل مشترک تمام صفحات</td></tr>
+      <tr><td><code>project_learning_journal/assets/js/journal.js</code></td><td>syntax highlighting آفلاین + دکمهٔ کپی کد</td></tr>
+      <tr><td><code>project_learning_journal/assets/js/lab-client.js</code></td><td>موتور عمومی رندر/اجرای آزمایش‌های تعاملی</td></tr>
+      <tr><td><code>project_learning_journal/serve_journal.py</code></td><td>سرور محلی HTTP آزمایشگاه</td></tr>
+      <tr><td><code>project_learning_journal/lab_experiments.py</code></td><td>رجیستری و پیاده‌سازی ۱۰ آزمایش</td></tr>
+      <tr><td><code>project_learning_journal/data_samples/mini_backtest_sample.csv</code></td><td>دیتاست مصنوعی ۱۵۰کندلی برای بک‌تست آموزشی</td></tr>
+      <tr><td><code>project_learning_journal/tests/test_lab_backend.py</code></td><td>۲۴ تست خودِ آزمایشگاه (اعتبارسنجی، امنیت، JSON، smoke test)</td></tr>
+      <tr><td><code>project_learning_journal/runtime_data/</code></td><td>پوشهٔ کاریِ خالیِ اجراهای بک‌تست آموزشی (gitignore‌شده)</td></tr>
+      <tr><td><code>project_learning_journal/PLAN.md</code></td><td>یادداشت داخلیِ برنامه‌ریزی فازها (غیر خواننده‌محور)</td></tr>
+      <tr><td><code>project_learning_journal/_analysis_notes.md</code></td><td>یادداشت داخلیِ تحلیل عمیق پیش از نگارش فصل‌ها (غیر خواننده‌محور)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="chapter-nav">
+    <span></span>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <span></span>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

@@ -15,6 +15,7 @@ TRACKED = {
     "run_pine_ob_paper.py": "runner-cli",
     "pine_ob_bot/__init__.py": "public-api",
     "pine_ob_bot/app.py": "app-orchestration",
+    "pine_ob_bot/cli_risk.py": "fixed-risk-cli",
     "pine_ob_bot/config.py": "configuration",
     "pine_ob_bot/dashboard_server.py": "dashboard",
     "pine_ob_bot/demo_executor.py": "demo-execution",

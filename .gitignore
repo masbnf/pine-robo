@@ -7,3 +7,7 @@ data/*.csv
 .venv/
 *.csv
 pine_ob_bot_data/
+
+# learning-journal runtime artifacts (keep dir via .gitkeep)
+project_learning_journal/runtime_data/*
+!project_learning_journal/runtime_data/.gitkeep

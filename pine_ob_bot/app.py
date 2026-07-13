@@ -70,6 +70,15 @@ class PaperApp:
         self.broker = PaperBroker(cfg, equity, spec)
         # Live paper trading always enforces the Entry Pivot admission gate.
         self.broker.enable_entry_pivot_gate()
+        self.m1_builder = None
+        if cfg.m1_entry_assist:
+            from .m1 import M1Builder
+            self.m1_builder = M1Builder()
+            self.log.warning(
+                "M1 Entry Assist is EXPERIMENTAL and live M1 bars are built "
+                "from polled ticks (~1/s): bar quality is approximate "
+                "(tick_count/partial flags record it); the in-progress M1 "
+                "bar is not persisted across restarts.")
         self.recorder = MarketRecorder(cfg.market_capture_dir, self.feed.symbol)
         self.demo = (DemoExecutor(feed.mt5, self.feed.symbol, cfg.demo_magic,
                                   cfg.demo_deviation_points,
@@ -236,11 +245,21 @@ class PaperApp:
         if age > self.cfg.max_live_tick_age_seconds:
             self.log.debug("ignoring stale tick age=%.1fs", age)
             return
+        if self.m1_builder is not None:
+            # Live M1 is built from POLLED ticks (~1/s), so bars are
+            # approximate; tick_count/partial flags record the quality. The
+            # closed M1 is processed before this tick executes, and the
+            # engine's first_eligible_m1_index guard keeps causality even
+            # though live M5 closes arrive on their own polling schedule.
+            closed_m1 = self.m1_builder.push(tick)
+            if closed_m1 is not None:
+                self.broker.process_m1_candle(closed_m1)
         before = {p.id for p in self.broker.positions}
         before_positions = {p.id: p for p in self.broker.positions}
         trades = self.broker.process_tick(tick)
         self._drain_rejected_sizing(tick.time)
         self._drain_trend_events(tick.time)
+        self._drain_breakeven_events(tick.time)
         after = {p.id for p in self.broker.positions}
         if before != after:
             for trade in trades:
@@ -342,6 +361,36 @@ class PaperApp:
                 event.get("side"), event.get("current_m5_trend"), event.get("trend_at_creation"))
         self.broker.trend_events.clear()
 
+    def _drain_breakeven_events(self, when: str) -> None:
+        """Log and persist every stop just moved to breakeven; in Demo mode
+        also mirror the SL modification to MT5 exactly once per position."""
+        if not self.broker.breakeven_events:
+            return
+        for event in self.broker.breakeven_events:
+            self.store.record_event(event.get("time", when), "breakeven_armed", event)
+            self.log.info("BREAKEVEN ARMED id=%s side=%s entry=%s sl %s -> %s trigger=%sR",
+                          event.get("position_id"), event.get("direction"),
+                          event.get("entry"), event.get("original_stop"),
+                          event.get("new_stop"), event.get("trigger_r"))
+            position = next((item for item in self.broker.positions
+                             if item.id == event.get("position_id")), None)
+            if not (self.demo and position is not None and
+                    position.meta.get("demo_order_sent")):
+                continue
+            try:
+                result = self.demo.modify_stop(position, float(event["new_stop"]))
+                position.meta["demo_breakeven_status"] = result.get("status")
+                self.store.record_event(when, "demo_stop_modified", result)
+                self.log.info("DEMO SL MODIFY ticket=%s status=%s sl=%s",
+                              result.get("ticket"), result.get("status"), result.get("sl"))
+            except Exception as exc:
+                position.meta.update({"demo_breakeven_status": "error",
+                                      "demo_breakeven_error": str(exc)})
+                self.store.record_event(when, "demo_stop_modify_failed",
+                                        {"position_id": position.id, "error": str(exc)})
+                self.log.error("DEMO SL MODIFY FAILED: %s", exc)
+        self.broker.breakeven_events.clear()
+
     def _reconcile_demo_positions(self) -> None:
         if not self.demo:
             return
@@ -377,7 +426,7 @@ class PaperApp:
                     break
                 time.sleep(self.cfg.poll_seconds)
         finally:
-            self._refresh_daily_report(force=True)
+            self._refresh_daily_report(force=True, block=True)
             self.report_worker.close()
             export_reports(self.broker, self.cfg.trades_csv, self.cfg.summary_csv)
             export_html(self.broker, self.cfg.db_path.parent / "paper_report.html",
@@ -390,18 +439,18 @@ class PaperApp:
             if self.dashboard:
                 self.dashboard.close()
 
-    def _refresh_daily_report(self, force: bool = False) -> None:
+    def _refresh_daily_report(self, force: bool = False, block: bool = False) -> None:
         today = datetime.now(self.report_zone).date()
         if today != self.report_day:
-            self._export_daily_report(self.report_day)
+            self._export_daily_report(self.report_day, block=block)
             self.report_day = today
             force = True
         now = time.monotonic()
         if force or now - self.last_report_refresh >= self.cfg.report_refresh_seconds:
-            self._export_daily_report(today)
+            self._export_daily_report(today, block=block)
             self.last_report_refresh = now
 
-    def _export_daily_report(self, day) -> None:
+    def _export_daily_report(self, day, block: bool = False) -> None:
         start_local = datetime.combine(day, datetime_time.min, self.report_zone)
         end_local = start_local + timedelta(days=1)
         counts = self.store.event_counts(start_local.astimezone(timezone.utc).isoformat(),
@@ -435,7 +484,7 @@ class PaperApp:
         if include_breakdown:
             self.last_breakdown_refresh = now
         self.report_worker.submit(self._write_daily_reports, broker_snapshot, day, context,
-                                  counts, include_breakdown)
+                                  counts, include_breakdown, block=block)
 
     def _write_daily_reports(self, broker, day, context, counts, include_breakdown) -> None:
         root = self.cfg.daily_reports_dir

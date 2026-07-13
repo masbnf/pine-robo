@@ -30,13 +30,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from pine_ob_bot.cli_experimental import (add_experimental_arguments, build_run_label,
+                                          experimental_label_tokens,
+                                          resolve_experimental_config,
+                                          validate_experimental_args)
+from pine_ob_bot.cli_risk import resolve_choch_risk_cap, validate_fixed_risk_args
 from pine_ob_bot.config import BotConfig
+from pine_ob_bot.feature_flags import (add_runtime_arguments, effective_config_report,
+                                       write_config_snapshots)
 from pine_ob_bot.tick_historical import run_tick_historical
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--month", required=True, metavar="YYYY-MM")
+    months_group = parser.add_mutually_exclusive_group(required=True)
+    months_group.add_argument("--month", metavar="YYYY-MM|all",
+                              help="single month directory under --data-root, or 'all' to "
+                                   "replay every month directory that actually contains "
+                                   "tick files for --symbol, in chronological order")
+    months_group.add_argument("--months", metavar="YYYY-MM,YYYY-MM,...",
+                              help="comma-separated month directories under --data-root, "
+                                   "replayed exactly like --month all (ONE continuous "
+                                   "backtest: single warm-up, continuous equity and "
+                                   "state) but restricted to the listed months")
     parser.add_argument("--symbol", default="XAUUSD")
     parser.add_argument("--data-root", type=Path,
                         default=Path("pine_ob_bot_data/historical_ticks"))
@@ -51,6 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="closed M5 bars to the left of a classic entry pivot (default: 5)")
     parser.add_argument("--entry-pivot-right", type=int, default=5,
                         help="closed M5 bars required to confirm the right side of an entry pivot (default: 5)")
+    parser.add_argument("--max-entry-pivot-age", type=int, default=None, metavar="N",
+                        help="reject setups whose latest confirmed entry pivot is more "
+                             "than N closed M5 bars past its confirmation bar "
+                             "(inclusive boundary; default: no age limit)")
     parser.add_argument("--swing-length", type=int, default=None,
                         help="deprecated alias for --trend-swing-length; kept for backward compatibility")
 
@@ -58,6 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-mode", choices=("fixed_rr", "m5_liquidity_min_rr"),
                         default="fixed_rr",
                         help="fixed RR or nearest active M5 liquidity with RR as minimum")
+    parser.add_argument("--breakeven-at-r", type=float, default=None, metavar="R",
+                        help="move SL to entry once, without offset, when the trade's "
+                             "real MFE reaches this many R of initial risk; the stop "
+                             "never moves backward (default: disabled)")
     parser.add_argument("--max-positions", type=int, default=1,
                         help="maximum simultaneous paper positions (default: 1)")
 
@@ -71,12 +95,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help="risk 1.25%% for causal top-quartile BOS displacement, else 0.75%%")
     parser.add_argument("--choch-displacement-risk-sizing", action="store_true",
                         help="risk 0.75/1.0/1.25%% from opposite CHoCH + adaptive displacement")
-    parser.add_argument("--choch-risk-cap", type=float, default=0.005, metavar="FRACTION",
-                        help="optional maximum risk fraction for CHoCH setups, e.g. 0.005")
+    parser.add_argument("--choch-risk-cap", type=float, default=None, metavar="FRACTION",
+                        help="maximum risk fraction for CHoCH setups (default: 0.005; "
+                             "cannot be combined with --fixed-risk)")
     parser.add_argument("--three-factor-risk-sizing", action="store_true",
                         help="score opposite CHoCH, displacement and adaptive OB age")
     parser.add_argument("--fixed-risk", action="store_true",
-                        help="disable the default CHoCH+Displacement risk sizing")
+                        help="use BotConfig.risk_fraction uniformly for BOS and CHoCH: "
+                             "disables every adaptive risk-sizing model and the CHoCH "
+                             "risk cap (choch_risk_cap_fraction=None). Cannot be combined "
+                             "with any adaptive risk-sizing flag or an explicit "
+                             "--choch-risk-cap.")
 
     parser.add_argument("--no-market-capture", action="store_true",
                         help="(no effect here; kept for CLI parity with the live runner)")
@@ -98,11 +127,42 @@ def build_parser() -> argparse.ArgumentParser:
                         help="limit at OB edge, or close after same-bar sweep and reclaim")
     parser.add_argument("--sweep-atr-buffer", type=float, default=0.20,
                         help="SL buffer in ATR units for sweep_reclaim entries")
+    parser.add_argument("--sweep-reclaim-max-bars", type=int, default=1, metavar="N",
+                        help="experimental: closed M5 bars the reclaim may lag the "
+                             "sweep (default 1 = same-bar sweep+reclaim, the "
+                             "original logic; a deeper sweep restarts the window)")
+    parser.add_argument("--revival-shadow-audit", action="store_true",
+                        help="observe-only audit of trend-cancelled setups: counts "
+                             "trend returns within 3/6/12 bars while the OB is "
+                             "still valid, fresh sweep+reclaims after the return, "
+                             "and hypothetical fills/R. Never trades.")
     parser.add_argument("--run-label", default="",
                         help="output label; auto-generated from swing/pivot sizes when omitted")
     parser.add_argument("--lifecycle", action="store_true",
                         help="experimental: require extension then retracement before arming")
+    add_experimental_arguments(parser)
+    add_runtime_arguments(parser)
     return parser
+
+
+def parse_months_list(value: str,
+                      parser: argparse.ArgumentParser) -> list[str]:
+    months = [m.strip() for m in value.split(",") if m.strip()]
+    if not months:
+        parser.error("--months requires at least one YYYY-MM entry")
+    duplicates = sorted({m for m in months if months.count(m) > 1})
+    if duplicates:
+        parser.error(f"--months lists duplicate entries: {', '.join(duplicates)}")
+    return months
+
+
+def months_label_token(months: list[str]) -> str:
+    """Compact auto-label token: ["2026-03", ..., "2026-06"] -> "0306",
+    matching the naming of the existing 0306 runs. --run-label overrides."""
+    parts = [m.split("-", 1) for m in months]
+    if all(len(p) == 2 and p[1].isdigit() for p in parts):
+        return f"{parts[0][1]}{parts[-1][1]}"
+    return "-".join(months)
 
 
 def resolve_swing_settings(args: argparse.Namespace,
@@ -131,14 +191,17 @@ def resolve_swing_settings(args: argparse.Namespace,
 
 def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig:
     return BotConfig(
+        **resolve_experimental_config(args),
         symbol=args.symbol,
         rr=args.rr,
 
         trend_swing_length=trend_swing_length,
         entry_pivot_left=args.entry_pivot_left,
         entry_pivot_right=args.entry_pivot_right,
+        max_entry_pivot_age_bars=args.max_entry_pivot_age,
 
         target_mode=args.target_mode,
+        breakeven_trigger_r=args.breakeven_at_r,
         max_open_positions=args.max_positions,
 
         liquidity_risk_sizing_enabled=args.liquidity_risk_sizing,
@@ -150,7 +213,7 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
                 args.choch_risk_sizing, args.combined_context_risk_sizing,
                 args.displacement_risk_sizing, args.three_factor_risk_sizing))
         ) or args.choch_displacement_risk_sizing,
-        choch_risk_cap_fraction=args.choch_risk_cap,
+        choch_risk_cap_fraction=resolve_choch_risk_cap(args.fixed_risk, args.choch_risk_cap),
         three_factor_risk_sizing_enabled=args.three_factor_risk_sizing,
 
         market_capture_enabled=not args.no_market_capture,
@@ -159,11 +222,20 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
         dashboard_host=args.dashboard_host,
         dashboard_port=args.dashboard_port,
 
-        allowed_break_kinds=("BOS",) if args.bos_only else ("BOS", "CHoCH"),
+        # Default is BOS-only, matching BotConfig and the --include-choch help
+        # text. Before 2026-07 this line silently traded CHoCH order blocks by
+        # default (("BOS", "CHoCH") unless --bos-only), which cost -9.3R across
+        # the 2026-03..06 sweep_reclaim runs. --strong-choch-only implies CHoCH
+        # must pass the kinds gate so its displacement filter can apply.
+        allowed_break_kinds=(("BOS", "CHoCH")
+                             if (args.include_choch or args.strong_choch_only)
+                             and not args.bos_only else ("BOS",)),
         strong_choch_only=args.strong_choch_only,
         min_entry_wait_bars=args.min_entry_wait,
         entry_mode=args.entry_mode,
         sweep_reclaim_atr_buffer=args.sweep_atr_buffer,
+        sweep_reclaim_max_bars=args.sweep_reclaim_max_bars,
+        revival_shadow_audit=args.revival_shadow_audit,
         entry_lifecycle_enabled=args.lifecycle,
     )
 
@@ -171,29 +243,80 @@ def build_config(args: argparse.Namespace, trend_swing_length: int) -> BotConfig
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    validate_fixed_risk_args(parser, args)
+    validate_experimental_args(parser, args)
     trend_swing_length, entry_pivot_left, entry_pivot_right = resolve_swing_settings(args, parser)
 
-    paths = sorted((args.data_root / args.month).glob(f"ticks_{args.symbol}_*.csv*"))
-    if not paths:
-        parser.error(f"no tick files found for {args.symbol} {args.month}")
-
     cfg = build_config(args, trend_swing_length)
+    cfg.validate()
+    resolved = resolve_experimental_config(args)
+    tokens = experimental_label_tokens(args, resolved)
+    months = parse_months_list(args.months, parser) if args.months else None
+    month_token = months_label_token(months) if months else args.month
+    base_label = (f"{args.symbol}_{month_token}"
+                  f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}")
+    effective_label = args.run_label or build_run_label(base_label, tokens, resolved)
+    safe_label = "".join(ch if ch.isalnum() or ch in "-_" else "_"
+                         for ch in effective_label)
+    run_info = {"data_source": "Tick", "run_label": effective_label,
+                "output_directory": args.out,
+                "trades_csv": args.out / f"tick_{safe_label}_trades.csv",
+                "events_log": args.out / f"tick_{safe_label}_events.jsonl",
+                "config_snapshot": args.out / f"{safe_label}_effective_config.json",
+                "argv": list(argv) if argv is not None else None}
+    print(effective_config_report(cfg, run_info))
+    if args.config_only:
+        # Parse+validate+report only: no tick file is read, no state changes.
+        return 0
 
-    # Keeps different swing/pivot/symbol runs on the same month from ever
-    # overwriting each other's output files (same idea as run_pine_ob_paper.py's
-    # auto-generated --run-label for --backtest).
-    effective_label = args.run_label or (
-        f"{args.symbol}_{args.month}"
-        f"_t{trend_swing_length}_p{entry_pivot_left}x{entry_pivot_right}"
-    )
+    if months:
+        # Same continuity contract as --month all -- one continuous replay
+        # (single warm-up, continuous equity and state) -- but restricted to
+        # exactly the listed month directories. Every listed month must hold
+        # tick files for the symbol; a typo'd or empty month is an error, not
+        # a silent skip.
+        paths = []
+        for month in months:
+            found = sorted((args.data_root / month).glob(f"ticks_{args.symbol}_*.csv*"))
+            if not found:
+                parser.error(f"no tick files found for {args.symbol} {month} "
+                             f"under {args.data_root}")
+            paths.extend(found)
+        paths.sort(key=lambda p: p.name)
+        print(f"months included: {', '.join(months)} ({len(paths)} files)")
+    elif args.month.lower() == "all":
+        # Every month directory under --data-root that actually holds tick
+        # files for this symbol; directories without matching ticks (or plain
+        # files like coverage.json) are skipped. Filenames embed the date
+        # (ticks_SYMBOL_YYYYMMDD), so the final name sort is chronological
+        # across month boundaries and the replay runs as ONE continuous
+        # backtest: single warm-up, continuous equity and state.
+        paths = []
+        included = []
+        for directory in sorted(p for p in args.data_root.iterdir() if p.is_dir()):
+            found = sorted(directory.glob(f"ticks_{args.symbol}_*.csv*"))
+            if found:
+                paths.extend(found)
+                included.append(directory.name)
+        if not paths:
+            parser.error(f"no tick files found for {args.symbol} under {args.data_root}")
+        paths.sort(key=lambda p: p.name)
+        print(f"months included: {', '.join(included)} ({len(paths)} files)")
+    else:
+        paths = sorted((args.data_root / args.month).glob(f"ticks_{args.symbol}_*.csv*"))
+        if not paths:
+            parser.error(f"no tick files found for {args.symbol} {args.month}")
 
     print(f"M5 trend swing length: {trend_swing_length}")
     print(f"M5 trend swing confirmation delay: {trend_swing_length * 5} minutes")
     print(f"M5 entry pivot: left={entry_pivot_left} right={entry_pivot_right}")
     print(f"M5 entry pivot confirmation delay: {entry_pivot_right * 5} minutes")
 
+    write_config_snapshots(args.out, safe_label, cfg, run_info)
     summary = run_tick_historical(paths, cfg, args.initial_equity, args.out,
-                                  effective_label, args.warmup_bars)
+                                  effective_label, args.warmup_bars,
+                                  decision_log=args.decision_log,
+                                  m1_debug=args.debug_m1)
     for key, value in summary.items():
         print(f"{key}: {value}")
     return 0

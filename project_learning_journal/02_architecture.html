@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۲ — معماری و ماژول‌ها | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۲ از ۲۰</div>
+    <h1>معماری و ماژول‌ها</h1>
+    <p class="chapter-sub">پنج لایهٔ منطقی pine_ob_bot، نقشهٔ وابستگی ماژول‌ها، و اینکه هر فایل دقیقاً چه نقشی دارد.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل‌های بررسی‌شده</a></li>
+      <li><a href="#layers">پنج لایهٔ معماری</a></li>
+      <li><a href="#depgraph">نقشهٔ وابستگی ماژول‌ها</a></li>
+      <li><a href="#table">جدول کامل ماژول‌ها</a></li>
+      <li><a href="#safety">ماژول‌های حساس (فقط توضیح، هرگز اجرا نمی‌شوند در آزمایشگاه)</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#design">نکات طراحی</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    قبل از خواندن هر تابع، باید بدانید آن تابع در کدام «لایه» قرار دارد و چه چیزهایی مجاز است وارد و
+    خارج کند. این فصل نقشهٔ کامل ۲۳ فایل پکیج <code>pine_ob_bot/</code> را می‌سازد تا در فصل‌های
+    تخصصی بعدی گم نشوید.
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل‌های بررسی‌شده</dt>
+    <dd>تمام ۲۳ فایل <code>.py</code> داخل <code>pine_ob_bot/</code> (در حد import و مسئولیت کلی؛ جزئیات هر کلاس در فصل‌های اختصاصی)</dd>
+    <dt>پیش‌نیاز</dt>
+    <dd>فصل ۱</dd>
+  </div>
+
+  <h2 id="layers">پنج لایهٔ معماری</h2>
+  <p>پروژه به‌صورت صریح در کد (docstring و ترتیب import) در پنج لایهٔ منطقی سازمان یافته است:</p>
+
+  <h3>۱) دریافت داده (Data Ingestion)</h3>
+  <p>
+    لبهٔ ورودی سیستم. <code>mt5_feed.py</code> (زنده، فقط‌خواندنی از MT5) و لودرهای CSV داخل
+    <code>historical.py</code>/<code>tick_historical.py</code>، شیء‌های <code>Candle</code>/<code>Tick</code>
+    تولید می‌کنند. هیچ لایهٔ پایین‌دستی اهمیت نمی‌دهد داده از فید زنده آمده یا از فایل.
+  </p>
+
+  <h3>۲) تشخیص ساختار و کانتکست (Structure / Context)</h3>
+  <p>
+    لایهٔ تحلیلی میانی: <code>pine_engine.py</code> (<code>PineSwingOBEngine</code> — تنها منبع
+    Trend Swing، Major BOS/CHoCH و Order Block)، <code>entry_pivot.py</code> (Pivot محلیِ مستقل)،
+    <code>trend_filter.py</code> (تابع خالص دروازهٔ جهت روند)، و سه ردیاب کانتکست کاملاً
+    مشاهده‌گر: <code>mtf_context.py</code>، <code>liquidity_context.py</code>،
+    <code>structure_context.py</code> — این سه فقط متادیتا اضافه می‌کنند، هرگز خودشان معامله‌ای را
+    قبول/رد نمی‌کنند.
+  </p>
+
+  <h3>۳) تصمیم و اجرا (Decision / Execution)</h3>
+  <p>
+    تقریباً کل تصمیم‌گیری در یک کلاس متمرکز است: <code>paper.py</code>’s <code>PaperBroker</code> —
+    پذیرش Order Block، چرخهٔ کامل Pending Order، منطق پر شدن سفارش در سه حالت (تیک، بازپخش کندلی،
+    Sweep &amp; Reclaim)، همهٔ مدل‌های اندازه‌گیری ریسک، Breakeven، و بستن پوزیشن/محاسبهٔ PnL.
+    <code>position_sizing.py</code> تنها وابستگیِ مستخرج و مستقلاً تست‌شدهٔ آن برای ریاضیات حجم است.
+  </p>
+
+  <h3>۴) ارکستراسیون (زنده / بک‌تست)</h3>
+  <p>
+    سه اجراکنندهٔ موازی که دقیقاً همان کلاس‌های موتور/بروکر/کانتکست را با همان ترتیب فراخوانی
+    صدا می‌زنند: <code>app.py</code>’s <code>PaperApp</code> (زنده، تیک‌محور، متصل به MT5، با
+    ماندگاری/داشبورد/آینهٔ دمو)، <code>historical.py</code>’s <code>run_historical</code>
+    (بازپخش CSV کندلی)، و <code>tick_historical.py</code>’s <code>run_tick_historical</code>
+    (بازپخش تیکی Bid/Ask). ادعای معماریِ اصلی پروژه — که صریحاً در چند docstring/کامنت تکرار شده —
+    این است که این سه اجراکننده هرگز در تصمیم‌های ساختاری/پذیرش واگرا نمی‌شوند، فقط در «وفاداری پر شدن سفارش».
+  </p>
+
+  <h3>۵) ماندگاری، گزارش و CLI</h3>
+  <p>
+    پوستهٔ بیرونی: <code>storage.py</code> (اسنپ‌شات/رویداد/معاملهٔ SQLite)، <code>report_worker.py</code>
+    (نخ پس‌زمینهٔ خروجی‌گیری)، <code>reporting.py</code> (تولید CSV/HTML)، <code>dashboard_server.py</code>
+    (نمایشگر HTTP محلیِ فقط‌خواندنی)، <code>market_recorder.py</code> (ضبط خام تیک/کندل)،
+    <code>cli_risk.py</code> (حل‌وفصل پرچم‌های مشترک CLI)، و اسکریپت ریشهٔ <code>run_pine_ob_paper.py</code>
+    که یک <code>BotConfig</code> را به <code>PaperApp</code> یا <code>run_historical</code> وصل می‌کند.
+  </p>
+
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    تنها کلاسی که قابلیت اثر واقعی روی دنیای بیرون دارد (ارسال سفارش) <code>demo_executor.py</code>’s
+    <code>DemoExecutor</code> است و به‌صورت ساختاری ایزوله شده: فقط در برابر حساب Demo تأییدشدهٔ MT5
+    ساخته می‌شود، فقط از مسیر تیکِ زندهٔ <code>app.py</code> صدا زده می‌شود، و هیچ‌کدام از دو
+    اجراکنندهٔ بک‌تست هرگز آن را لمس نمی‌کنند. باقیِ پروژه — از جمله کل هستهٔ اجرایی
+    <code>paper.py</code> — شبیه‌سازیِ خالص درون‌فرایندی است، بدون هیچ قابلیت شبکه یا ثبت سفارش.
+  </div>
+
+  <h2 id="depgraph">نقشهٔ وابستگی ماژول‌ها</h2>
+  <p>فلش یعنی «از آن import می‌کند». این نقشه مستقیماً از خواندن دستورهای import هر فایل ساخته شده است.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 940 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="نمودار وابستگی ماژول‌ها">
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7ee2b8"/>
+        </marker>
+      </defs>
+      <style>
+        .n{ fill:#1b2028; stroke:#2a3140; }
+        .nt{ fill:#e7ebf3; font-size:11.5px; font-family:sans-serif; text-anchor:middle; }
+        .core{ stroke:#5aa9ff; stroke-width:1.6; }
+        .e{ stroke:#7ee2b8; stroke-width:1.2; fill:none; marker-end:url(#arr2); opacity:.85; }
+      </style>
+      <!-- leaf row -->
+      <rect x="20" y="20" width="130" height="30" class="n" rx="6"/><text x="85" y="40" class="nt">config.py</text>
+      <rect x="170" y="20" width="130" height="30" class="n" rx="6"/><text x="235" y="40" class="nt">models.py</text>
+      <rect x="320" y="20" width="150" height="30" class="n" rx="6"/><text x="395" y="40" class="nt">trend_filter.py</text>
+      <rect x="490" y="20" width="170" height="30" class="n" rx="6"/><text x="575" y="40" class="nt">position_sizing.py</text>
+      <rect x="680" y="20" width="150" height="30" class="n" rx="6"/><text x="755" y="40" class="nt">report_worker.py</text>
+
+      <!-- second row -->
+      <rect x="60" y="100" width="150" height="30" class="n" rx="6"/><text x="135" y="120" class="nt">entry_pivot.py</text>
+      <rect x="230" y="100" width="170" height="30" class="n" rx="6"/><text x="315" y="120" class="nt">structure_context.py</text>
+      <rect x="420" y="100" width="170" height="30" class="n" rx="6"/><text x="505" y="120" class="nt">liquidity_context.py</text>
+      <rect x="610" y="100" width="150" height="30" class="n" rx="6"/><text x="685" y="120" class="nt">pine_engine.py</text>
+      <rect x="780" y="100" width="140" height="30" class="n" rx="6"/><text x="850" y="120" class="nt">storage.py</text>
+
+      <!-- third row -->
+      <rect x="330" y="180" width="150" height="30" class="n" rx="6"/><text x="405" y="200" class="nt">mtf_context.py</text>
+
+      <!-- core -->
+      <rect x="370" y="260" width="200" height="40" class="n core" rx="8"/><text x="470" y="284" class="nt" font-weight="700">paper.py (PaperBroker)</text>
+
+      <!-- orchestrators -->
+      <rect x="60" y="350" width="180" height="34" class="n" rx="6"/><text x="150" y="371" class="nt">historical.py</text>
+      <rect x="270" y="350" width="200" height="34" class="n" rx="6"/><text x="370" y="371" class="nt">tick_historical.py</text>
+      <rect x="500" y="350" width="140" height="34" class="n" rx="6"/><text x="570" y="371" class="nt">app.py</text>
+      <rect x="670" y="350" width="150" height="34" class="n" rx="6"/><text x="745" y="371" class="nt">mt5_feed.py</text>
+      <rect x="840" y="350" width="80" height="34" class="n" rx="6"/><text x="880" y="371" class="nt" font-size="10">demo_executor.py</text>
+
+      <!-- outer -->
+      <rect x="200" y="430" width="180" height="34" class="n" rx="6"/><text x="290" y="451" class="nt">reporting.py</text>
+      <rect x="410" y="430" width="200" height="34" class="n" rx="6"/><text x="510" y="451" class="nt">run_pine_ob_paper.py</text>
+      <rect x="640" y="430" width="180" height="34" class="n" rx="6"/><text x="730" y="451" class="nt">dashboard_server.py / cli_risk.py</text>
+
+      <path class="e" d="M470,260 L470,130"/>
+      <path class="e" d="M420,260 L235,50"/>
+      <path class="e" d="M420,260 L135,130"/>
+      <path class="e" d="M420,260 L85,50"/>
+      <path class="e" d="M420,260 L395,50"/>
+      <path class="e" d="M520,260 L575,50"/>
+      <path class="e" d="M150,350 L470,300"/>
+      <path class="e" d="M370,350 L470,300"/>
+      <path class="e" d="M570,350 L470,300"/>
+      <path class="e" d="M150,350 L315,130"/>
+      <path class="e" d="M370,350 L505,130"/>
+      <path class="e" d="M150,350 L405,200"/>
+      <path class="e" d="M745,350 L470,290" opacity=".4"/>
+      <path class="e" d="M510,430 L570,384"/>
+      <path class="e" d="M510,430 L150,384"/>
+      <path class="e" d="M290,430 L470,300"/>
+    </svg>
+    <div class="diagram-caption">
+      <code>paper.py</code> کانون اجراست: هم بیشترین «مصرف‌کننده» را دارد (توسط historical/tick_historical/app/mt5_feed استفاده می‌شود) و هم خودش از config، entry_pivot، models، position_sizing و trend_filter تغذیه می‌کند.
+    </div>
+  </div>
+
+  <p>
+    ماژول‌های بدون هیچ وابستگی داخلی («برگ‌های» گراف) بهترین نقطهٔ شروع برای مطالعه‌اند، چون برای
+    فهمیدنشان لازم نیست چیز دیگری را از قبل بدانید: <code>config.py</code>، <code>models.py</code>،
+    <code>trend_filter.py</code>، <code>position_sizing.py</code>، <code>report_worker.py</code>،
+    <code>cli_risk.py</code>، <code>dashboard_server.py</code>. دقیقاً به همین دلیل، فصل‌های ۴ و ۵ این
+    ژورنال از همین ماژول‌ها شروع می‌شوند.
+  </p>
+
+  <h2 id="table">جدول کامل ماژول‌ها</h2>
+  <table>
+    <thead><tr><th>فایل</th><th>خط</th><th>نقش خلاصه</th><th>فصل مرتبط</th></tr></thead>
+    <tbody>
+      <tr><td><code>__init__.py</code></td><td>۱۲</td><td>سطح export عمومی پکیج</td><td>۱</td></tr>
+      <tr><td><code>models.py</code></td><td>۱۲۴</td><td>دیتاکلاس‌های مشترک (Candle...Trade)</td><td>۵</td></tr>
+      <tr><td><code>config.py</code></td><td>۲۲۲</td><td><code>BotConfig</code> و اعتبارسنجی</td><td>۴</td></tr>
+      <tr><td><code>trend_filter.py</code></td><td>۸۳</td><td>دروازهٔ خالص جهت روند M5</td><td>۶</td></tr>
+      <tr><td><code>entry_pivot.py</code></td><td>۱۱۱</td><td>Pivot محلی مستقل از Trend</td><td>۷</td></tr>
+      <tr><td><code>structure_context.py</code></td><td>۱۲۶</td><td>متادیتای CHoCH و displacement</td><td>۸</td></tr>
+      <tr><td><code>liquidity_context.py</code></td><td>۱۷۸</td><td>ردیاب استخرهای نقدینگی (مشاهده‌گر)</td><td>۹</td></tr>
+      <tr><td><code>mtf_context.py</code></td><td>۸۹</td><td>کانتکست M15 (مشاهده‌گر)</td><td>۱۰</td></tr>
+      <tr><td><code>position_sizing.py</code></td><td>۸۵</td><td>ریاضیات محاسبهٔ حجم بر اساس ریسک</td><td>۱۱</td></tr>
+      <tr><td><code>pine_engine.py</code></td><td>۱۶۴</td><td><code>PineSwingOBEngine</code>: Swing/BOS/CHoCH/OB</td><td>۶، ۸</td></tr>
+      <tr><td><code>paper.py</code></td><td>۱۲۰۹</td><td><code>PaperBroker</code>: هستهٔ تصمیم و اجرا</td><td>۱۰، ۱۲، ۱۳</td></tr>
+      <tr><td><code>historical.py</code></td><td>۲۰۷</td><td>بک‌تست کندلی (<code>run_historical</code>)</td><td>۱۵</td></tr>
+      <tr><td><code>tick_historical.py</code></td><td>۱۸۹</td><td>بک‌تست تیکی (<code>run_tick_historical</code>)</td><td>۱۵</td></tr>
+      <tr><td><code>reporting.py</code></td><td>۳۶۶</td><td>تولید CSV/HTML گزارش</td><td>۱۶</td></tr>
+      <tr><td><code>report_worker.py</code></td><td>۴۴</td><td>نخ پس‌زمینهٔ خروجی‌گیری</td><td>۱۶</td></tr>
+      <tr><td><code>storage.py</code></td><td>۵۹</td><td>ماندگاری SQLite (اسنپ‌شات/رویداد/معامله)</td><td>۱۳، ۱۶</td></tr>
+      <tr><td><code>app.py</code></td><td>۵۳۴</td><td><code>PaperApp</code>: ارکستراسیون زنده</td><td>۳، ۱۴</td></tr>
+      <tr><td><code>cli_risk.py</code></td><td>۵۰</td><td>حل‌وفصل پرچم‌های ریسک CLI</td><td>۱۶</td></tr>
+      <tr><td><code>dashboard_server.py</code></td><td>۴۹</td><td>نمایشگر HTTP محلی فقط‌خواندنی</td><td>۱۶</td></tr>
+      <tr><td><code>market_recorder.py</code></td><td>۶۶</td><td>ضبط خام تیک/کندل روی دیسک</td><td>۱۶</td></tr>
+      <tr><td><code>mt5_feed.py</code></td><td>۱۰۳</td><td>فید زندهٔ MT5 (فقط‌خواندنی)</td><td>۳ (فقط توضیح)</td></tr>
+      <tr><td><code>demo_executor.py</code></td><td>۲۱۲</td><td>آینهٔ اختیاری روی حساب Demo واقعی</td><td>۱۳ (فقط توضیح)</td></tr>
+      <tr><td><code>tests/*.py</code> (۱۰ فایل)</td><td>۱۸۰۸</td><td>تست‌های pytest موجود</td><td>۱۷</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="safety">ماژول‌های حساس</h2>
+  <div class="callout warn">
+    <span class="callout-tag">هشدار</span>
+    <code>mt5_feed.py</code> و <code>demo_executor.py</code> (و مسیرهای زندهٔ <code>app.py</code> که
+    آن‌ها را صدا می‌زنند) به یک ترمینال واقعی MT5 و/یا حساب Demo واقعی وابسته‌اند. آزمایشگاه تعاملی
+    این ژورنال (فصل ۱۸ به بعد) هرگز این ماژول‌ها را واقعاً اجرا نمی‌کند — فقط رفتارشان را توضیح
+    می‌دهد یا (در حد تست‌های موجود پروژه) در برابر آبجکت‌های Fake نمایش می‌دهد.
+    <code>dashboard_server.py</code> هم چون یک HTTP listener واقعی باز می‌کند، در آزمایشگاه اجرا نمی‌شود.
+  </div>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>معماری لایه‌ای (Layered Architecture):</strong> هر لایه فقط با لایهٔ زیر خودش صحبت
+    می‌کند (لایهٔ ارکستراسیون از تشخیص ساختار استفاده می‌کند، نه برعکس) — این جهت‌داریِ وابستگی
+    باعث می‌شود بشود <code>pine_engine.py</code> را کاملاً مستقل از <code>app.py</code> تست کرد.
+  </p>
+  <p>
+    <strong>جداسازی مسئولیت‌ها (Separation of Concerns):</strong> توجه کنید که «تشخیص» (لایهٔ ۲) و
+    «تصمیم‌گیری» (لایهٔ ۳) دو لایهٔ جدا هستند: <code>pine_engine.py</code> فقط می‌گوید «این‌جا یک
+    BOS رخ داد»، اما اینکه آیا آن BOS باید به یک معامله تبدیل شود یا نه، تصمیمی است که فقط
+    <code>PaperBroker.add_ob</code> در <code>paper.py</code> می‌گیرد.
+  </p>
+  <p>
+    <strong>ماژول‌های خالص در برابر ماژول‌های دارای وضعیت (Stateless vs Stateful):</strong>
+    <code>trend_filter.py</code> و <code>position_sizing.py</code> فقط تابع خالص دارند (ورودی می‌گیرند،
+    خروجی می‌دهند، هیچ حالتی نگه نمی‌دارند) — به همین دلیل تست‌نویسی برایشان بسیار ساده است (فصل ۱۷).
+    در مقابل <code>PaperBroker</code> یک شیء بزرگ و دارای وضعیت است (لیست سفارش‌های معلق، پوزیشن باز، equity).
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>فکر کردن به <code>mtf_context.py</code>/<code>liquidity_context.py</code> به‌عنوان فیلترهای ورود — نیستند؛ فقط متادیتا برای گزارش اضافه می‌کنند (تأیید صریح در <code>README.md</code>: «M15 does not filter entries»، «liquidity does not gate entries»).</li>
+    <li>گمان اینکه چون <code>paper.py</code> بزرگ‌ترین فایل است (۱۲۰۹ خط)، باید اول خوانده شود — برعکس؛ چون به همه‌چیز وابسته است، بهتر است آخرین لایهٔ تخصصی باشد که می‌خوانید (فصل ۱۰ به بعد).</li>
+  </ul>
+
+  <h2 id="design">نکات طراحی و معماری</h2>
+  <p>
+    این پروژه از الگوی «هستهٔ خالص + چند ارکستراتور نازک» استفاده می‌کند: منطق واقعی (موتور ساختار +
+    بروکر کاغذی) در دو ماژول متمرکز است و سه ارکستراتور (<code>app.py</code>،
+    <code>historical.py</code>، <code>tick_historical.py</code>) فقط «سیم‌کشی» و منبع داده را عوض
+    می‌کنند. این الگو دقیقاً همان چیزی است که باعث می‌شود تست‌های یکپارچگی (مثل
+    <code>test_trend_engine_integration.py</code>) بتوانند ثابت کنند اجرای زنده و اجرای تاریخی به
+    یک نتیجهٔ یکسان می‌رسند.
+  </p>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط)</h4>
+    <p>فرض کنید می‌خواهید یک ماژول جدید <code>news_filter.py</code> اضافه کنید که معاملات را حول
+    اخبار مهم فیلتر کند. بر اساس معماری لایه‌ای بالا، این ماژول باید در کدام لایه قرار بگیرد و کدام
+    فایل موجود باید آن را صدا بزند تا معماری فعلی به هم نریزد؟</p>
+    <details>
+      <summary>راهنما</summary>
+      <p class="hint">به الگوی <code>mtf_context.py</code>/<code>liquidity_context.py</code> نگاه کنید — اگر فیلتر باشد نه فقط مشاهده‌گر، محل طبیعی فراخوانی‌اش کجای <code>PaperBroker.add_ob</code> است؟</p>
+    </details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>پنج لایهٔ معماری pine_ob_bot را به ترتیب نام ببرید.</li>
+    <li>چرا <code>paper.py</code> «هستهٔ اجرا» نامیده می‌شود؟</li>
+    <li>چه ماژول‌هایی «برگ» گراف وابستگی هستند و چرا نقطهٔ شروع خوبی برای مطالعه‌اند؟</li>
+    <li>چرا آزمایشگاه تعاملی هرگز <code>mt5_feed.py</code> یا <code>demo_executor.py</code> را واقعاً اجرا نمی‌کند؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    pine_ob_bot در پنج لایه سازمان یافته: دریافت داده، تشخیص ساختار، تصمیم/اجرا (<code>PaperBroker</code>)،
+    ارکستراسیون (زنده/بک‌تست)، و ماندگاری/گزارش. جهت وابستگی همیشه از ارکستراسیون به‌سمت هستهٔ خالص
+    است، نه برعکس. ماژول‌های بدون وابستگی داخلی بهترین نقطهٔ شروع مطالعه‌اند.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="01_project_overview.html"><span class="dir">→ فصل قبل</span>کلیات پروژه</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="03_execution_flow.html"><span class="dir">فصل بعد ←</span>جریان اجرا</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+</body>
+</html>

@@ -61,6 +61,128 @@ class BotConfig:
     min_entry_wait_bars: int = 0
     entry_mode: str = "limit"
     sweep_reclaim_atr_buffer: float = 0.20
+    # Closed M5 bars the reclaim may lag the sweep in sweep_reclaim mode.
+    # 1 (default) = sweep and reclaim must happen on the SAME closed bar --
+    # the original logic, unchanged. N>1 is experimental (enable via the
+    # --sweep-reclaim-max-bars flag on the runners): a bar that wicks through
+    # the entry edge opens an N-bar window, and any bar inside it that closes
+    # back beyond the edge confirms; a deeper sweep restarts the window; OB
+    # invalidation still kills the order at any point.
+    sweep_reclaim_max_bars: int = 1
+    # Shadow audit of "revive setups after the trend returns" (sweep_reclaim
+    # only; enable via --revival-shadow-audit on the runners). NEVER creates,
+    # fills or cancels real orders: trend-cancelled setups are additionally
+    # tracked in a shadow list, and counters report how many would have been
+    # revivable (trend back within 3/6/12 bars while the OB is still valid),
+    # how many would have seen a FRESH sweep+reclaim after the return, and
+    # the hypothetical R those fills would have produced.
+    revival_shadow_audit: bool = False
+    # Entry Pivot freshness: a confirmed entry pivot may admit new setups for
+    # at most this many closed M5 bars past its CONFIRMATION bar (inclusive:
+    # age == limit is still fresh). None = no age limit, i.e. the legacy
+    # behaviour where the latest pivot stays valid forever.
+    max_entry_pivot_age_bars: int | None = None
+    # Move the stop to entry once open profit reaches this many R (e.g. 1.0).
+    # None disables the breakeven move entirely. Read by
+    # PaperBroker._apply_breakeven on every tick/candle that touches an open
+    # position; the "breakeven_armed" stat counts activations.
+    breakeven_trigger_r: float | None = None
+    # ------------------------------------------------------------------
+    # Experimental trade-frequency features. EVERY field below defaults to
+    # off/None; they may only be enabled through their dedicated CLI flags
+    # (--controlled-revival, --allow-ob-reentry,
+    # --wait-for-spread-after-confirmation, --portfolio-risk-cap). With all
+    # of them off the broker takes the exact legacy code paths -- guarded by
+    # tests/test_legacy_regression.py against pre-change fixtures.
+    # ------------------------------------------------------------------
+    # Controlled Revival: when a pending sweep_reclaim setup is cancelled
+    # purely by an M5 trend change, keep a suspended record; if the trend
+    # returns to the original direction within revival_max_return_bars closed
+    # bars while the OB is still valid, create a brand-new pending order
+    # (new id, linked via metadata) that must earn a completely FRESH
+    # sweep+reclaim after the return. The old order is never re-activated.
+    # Weak CHoCH setups are never revived. Requires entry_mode=sweep_reclaim.
+    controlled_revival: bool = False
+    revival_max_return_bars: int = 6
+    # When False (explicit opt-out), the revival order is created already
+    # sweep-confirmed and fills on the next tick/bar without a fresh sweep.
+    revival_require_fresh_sweep: bool = True
+    revival_max_per_ob: int = 1
+    # Controlled Re-entry: one additional, fully re-validated entry on the
+    # same Order Block after the previous trade on it has CLOSED. Needs a
+    # fresh sweep+reclaim (the first entry's sweep is never reusable), an
+    # aligned trend, a still-valid OB and min_reentry_wait_bars of distance
+    # from the exit. Attempt counting includes the first entry, so
+    # max_entries_per_ob=2 means "the original entry plus one re-entry".
+    # Requires entry_mode=sweep_reclaim. Weak CHoCH never re-enters.
+    allow_ob_reentry: bool = False
+    max_entries_per_ob: int = 2
+    min_reentry_wait_bars: int = 1
+    reentry_require_fresh_sweep: bool = True
+    reentry_after_loss_only: bool = False
+    # Spread Wait: instead of retrying a spread-blocked, already-confirmed
+    # order indefinitely (the implicit legacy behaviour), place it in an
+    # explicit waiting state bounded by at least one of the three limits;
+    # cancel deterministically on timeout, trend change or OB invalidation.
+    # Tick-execution paths only (live paper + tick backtest); the OHLC replay
+    # has no per-tick spread so the flag is inert there.
+    wait_for_spread_after_confirmation: bool = False
+    spread_wait_max_seconds: float | None = None
+    spread_wait_max_ticks: int | None = None
+    spread_wait_max_bars: int | None = None
+    # Portfolio risk cap: reject any fill whose projected TOTAL open risk
+    # (sum of open positions' risk_money plus the new trade's sized risk,
+    # as a fraction of current equity) exceeds this cap. Reject-only in v1:
+    # volume is never silently reduced, and a rejected order is deactivated,
+    # not retried. None keeps the legacy unlimited behaviour.
+    portfolio_risk_cap: float | None = None
+    # ------------------------------------------------------------------
+    # M1 Entry Assist (experimental, tick paths only, all default OFF).
+    # M5 stays the ONLY source of trend/swing/BOS/CHoCH/entry-pivot/OB/
+    # setup direction; M1 may only refine ENTRY TIMING on an active, valid
+    # M5 setup. Modes: "shadow" (observe-only hypothetical entries),
+    # "sequence" (only disambiguate same-bar M5 sweep/reclaim ordering --
+    # can veto a false M5 confirmation, creates nothing), "entry" (a valid
+    # closed-bar M1 sweep+reclaim may confirm an active M5 setup early;
+    # the fill still runs through the normal tick pipeline: spread,
+    # spread-wait, position limit, portfolio cap, sizing). With
+    # m1_entry_assist False no M1 bar is even built (zero overhead) and
+    # behaviour is bit-identical to baseline.
+    # ------------------------------------------------------------------
+    m1_entry_assist: bool = False
+    m1_assist_mode: str = "shadow"
+    # Closed M1 bars the M1 reclaim may lag the M1 sweep.
+    m1_reclaim_max_bars: int = 3
+    # Cap of M1 confirmations (consumed or expired) per Order Block.
+    m1_max_confirmations_per_ob: int = 1
+    # Closed M1 bars an unfilled M1 confirmation stays valid before the
+    # order reverts to the untouched M5 fallback path.
+    m1_entry_expiry_bars: int = 5
+    # Only CLOSED M1 bars may confirm (never the forming bar's high/low);
+    # the fill then uses the first eligible tick after that close.
+    m1_require_closed_bar: bool = True
+    # In sequence/entry modes, veto an M5 same-bar confirmation whose M1
+    # ordering shows the reclaim happened BEFORE the sweep. Never applies
+    # in shadow mode (shadow must not change real behaviour).
+    m1_use_sequence_validation: bool = True
+    # Separate experiment: place the stop behind the real M1 sweep extreme
+    # (plus buffer) instead of the M5 stop. Kept apart from entry assist so
+    # entry and stop effects are never mixed. Default OFF.
+    m1_refine_stop: bool = False
+    m1_stop_atr_buffer: float = 0.20
+    # Live-decision-safe lead-time gate (separate from the retrospective,
+    # post-hoc m1_lead_minutes counterfactual computed in on_m5_close, which
+    # is only known AFTER the M5 candle that would have confirmed the same
+    # setup and therefore cannot gate a live decision). m1_max_lead_minutes
+    # rejects an "entry"-mode M1 confirmation whose m1_setup_to_confirm_minutes
+    # (M5 setup creation -> M1 confirmation, known at confirm time) exceeds
+    # the limit. None = no cap (legacy). Requires m1_entry_assist.
+    m1_max_lead_minutes: float | None = None
+    # Shrinks the risk fraction (and therefore volume) of a fill whose
+    # entry_trigger == "m1_sweep_reclaim", applied AFTER the base risk model
+    # selects risk_fraction (never bypasses the risk models). 1.0 (default)
+    # is a no-op. Only meaningful in m1_assist_mode="entry".
+    m1_risk_multiplier: float = 1.0
     entry_lifecycle_enabled: bool = False
     poll_seconds: float = 1.0
     fallback_spread: float = 0.20
@@ -106,6 +228,8 @@ class BotConfig:
             raise ValueError("lookback periods must be positive")
         if self.entry_pivot_left < 1 or self.entry_pivot_right < 1:
             raise ValueError("entry pivot windows must be positive")
+        if self.max_entry_pivot_age_bars is not None and self.max_entry_pivot_age_bars < 1:
+            raise ValueError("max_entry_pivot_age_bars must be positive or None")
         if self.state_history_bars < max(self.trend_swing_length, self.atr_period):
             raise ValueError("state history is shorter than strategy warm-up")
         if self.rr <= 0 or not 0 < self.risk_fraction <= 1:
@@ -150,8 +274,68 @@ class BotConfig:
             raise ValueError("entry_mode must be 'limit' or 'sweep_reclaim'")
         if self.sweep_reclaim_atr_buffer < 0:
             raise ValueError("sweep_reclaim_atr_buffer cannot be negative")
+        if self.sweep_reclaim_max_bars < 1:
+            raise ValueError("sweep_reclaim_max_bars must be at least 1")
+        if self.breakeven_trigger_r is not None and self.breakeven_trigger_r <= 0:
+            raise ValueError("breakeven_trigger_r must be positive or None")
+        if self.revival_max_return_bars < 1:
+            raise ValueError("revival_max_return_bars must be at least 1")
+        if self.revival_max_per_ob < 1:
+            raise ValueError("revival_max_per_ob must be at least 1")
+        if self.controlled_revival and self.entry_mode != "sweep_reclaim":
+            raise ValueError("controlled_revival requires entry_mode='sweep_reclaim'")
+        if self.max_entries_per_ob < 1:
+            raise ValueError("max_entries_per_ob must be at least 1")
+        if self.allow_ob_reentry and self.max_entries_per_ob < 2:
+            raise ValueError("max_entries_per_ob must be at least 2 when re-entry is enabled")
+        if self.min_reentry_wait_bars < 0:
+            raise ValueError("min_reentry_wait_bars cannot be negative")
+        if self.allow_ob_reentry and self.entry_mode != "sweep_reclaim":
+            raise ValueError("allow_ob_reentry requires entry_mode='sweep_reclaim'")
+        spread_wait_limits = (self.spread_wait_max_seconds, self.spread_wait_max_ticks,
+                              self.spread_wait_max_bars)
+        if self.wait_for_spread_after_confirmation and all(v is None for v in spread_wait_limits):
+            raise ValueError("spread wait needs at least one of max seconds/ticks/bars")
+        if any(v is not None and v <= 0 for v in spread_wait_limits):
+            raise ValueError("spread wait limits must be positive when set")
+        if not self.wait_for_spread_after_confirmation and any(v is not None
+                                                               for v in spread_wait_limits):
+            raise ValueError("spread wait limits require wait_for_spread_after_confirmation")
+        if self.portfolio_risk_cap is not None and not 0 < self.portfolio_risk_cap <= 1:
+            raise ValueError("portfolio_risk_cap must be in (0, 1] or None")
+        if self.m1_assist_mode not in {"shadow", "sequence", "entry"}:
+            raise ValueError("m1_assist_mode must be shadow, sequence or entry")
+        if self.m1_reclaim_max_bars < 1:
+            raise ValueError("m1_reclaim_max_bars must be at least 1")
+        if self.m1_max_confirmations_per_ob < 1:
+            raise ValueError("m1_max_confirmations_per_ob must be at least 1")
+        if self.m1_entry_expiry_bars < 1:
+            raise ValueError("m1_entry_expiry_bars must be at least 1")
+        if self.m1_entry_assist and self.entry_mode != "sweep_reclaim":
+            raise ValueError("m1_entry_assist requires entry_mode='sweep_reclaim'")
+        if self.m1_refine_stop and not self.m1_entry_assist:
+            raise ValueError("m1_refine_stop requires m1_entry_assist")
+        if self.m1_stop_atr_buffer < 0:
+            raise ValueError("m1_stop_atr_buffer cannot be negative")
+        if self.m1_max_lead_minutes is not None and self.m1_max_lead_minutes <= 0:
+            raise ValueError("m1_max_lead_minutes must be positive or None")
+        if self.m1_max_lead_minutes is not None and not self.m1_entry_assist:
+            raise ValueError("m1_max_lead_minutes requires m1_entry_assist")
+        if not 0 < self.m1_risk_multiplier <= 1:
+            raise ValueError("m1_risk_multiplier must be in (0, 1]")
+        if self.m1_risk_multiplier != 1.0 and not (
+                self.m1_entry_assist and self.m1_assist_mode == "entry"):
+            raise ValueError(
+                "m1_risk_multiplier requires m1_entry_assist and m1_assist_mode='entry'")
         if self.max_open_positions < 1:
             raise ValueError("max_open_positions must be positive")
+        # Values above 1 mean "burst fill": while the broker is flat, up to
+        # max_open_positions pending orders may fill on the same tick/candle
+        # (see tests/test_pine_ob_bot.py test_two_position_capacity_fills_two
+        # _orders). Once at least one position is open, process_tick/
+        # process_candle manage it and return without evaluating new fills, so
+        # positions are never ADDED to an existing one -- capacity only applies
+        # to simultaneous fills from a flat state.
         if self.fallback_spread < 0:
             raise ValueError("fallback_spread cannot be negative")
         if self.max_live_tick_age_seconds <= 0:

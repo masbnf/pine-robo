@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فصل ۱۲ — Take Profit و Breakeven | ژورنال pine_ob_bot</title>
+<link rel="stylesheet" href="assets/css/journal.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="chapter-header">
+    <div class="chapter-kicker">فصل ۱۲ از ۲۰</div>
+    <h1>Take Profit و Breakeven</h1>
+    <p class="chapter-sub">چگونه هدف سود محاسبه می‌شود، و منطق یک‌بارهٔ انتقال Stop به نقطهٔ سر‌به‌سر.</p>
+  </div>
+
+  <details class="toc">
+    <summary>فهرست مطالب این فصل</summary>
+    <ol>
+      <li><a href="#goal">هدف فصل</a></li>
+      <li><a href="#files">فایل بررسی‌شده</a></li>
+      <li><a href="#tp">محاسبهٔ Take Profit</a></li>
+      <li><a href="#lab-tp">آزمایشگاه: محاسبهٔ Take Profit</a></li>
+      <li><a href="#be">منطق Breakeven</a></li>
+      <li><a href="#code-be">کد: _apply_breakeven</a></li>
+      <li><a href="#lab-be">آزمایشگاه: Breakeven</a></li>
+      <li><a href="#concepts">مفاهیم برنامه‌نویسی</a></li>
+      <li><a href="#mistakes">اشتباهات رایج</a></li>
+      <li><a href="#exercise">تمرین عملی</a></li>
+      <li><a href="#review">پرسش‌های مرور</a></li>
+      <li><a href="#summary">خلاصهٔ فصل</a></li>
+    </ol>
+  </details>
+
+  <h2 id="goal">هدف فصل</h2>
+  <p>
+    بعد از اینکه فصل ۱۱ نشان داد چقدر ریسک می‌کنیم، این فصل نشان می‌دهد چقدر امید به سود داریم
+    (Take Profit) و اینکه چگونه، فقط یک‌بار در طول عمر یک معامله، می‌توانیم آن ریسک را به صفر
+    برسانیم (Breakeven).
+  </p>
+
+  <div class="meta-block">
+    <dt>فایل بررسی‌شده</dt><dd><code>pine_ob_bot/paper.py</code> — بخش‌های محاسبهٔ target در <code>add_ob</code>/<code>_open</code>، متد <code>_apply_breakeven</code></dd>
+    <dt>پیش‌نیاز</dt><dd>فصل‌های ۱۰، ۱۱</dd>
+  </div>
+
+  <h2 id="tp">محاسبهٔ Take Profit</h2>
+  <p>هدف در دو نقطه محاسبه می‌شود:</p>
+  <ol>
+    <li><strong>در لحظهٔ ساخت سفارش</strong> (<code>PaperBroker.add_ob</code>، فصل ۱۰): با فرمول ثابت <code>target = entry ± rr × risk</code> که <code>risk = ob.high - ob.low</code> و <code>rr = cfg.rr</code> (پیش‌فرض ۱.۵). این حالت <code>target_mode="fixed_rr"</code> است.</li>
+    <li><strong>در لحظهٔ پر شدن سفارش</strong> (<code>PaperBroker._open</code>): اگر <code>cfg.target_mode == "m5_liquidity_min_rr"</code>، نزدیک‌ترین استخر نقدینگی هم‌جهت از کانتکست <code>LiquidityTracker</code> (فصل ۲) بررسی می‌شود؛ اگر نسبت پاداش‌به‌ریسک آن سطح از <code>rr</code> پیکربندی‌شده کمتر نباشد، هدف <strong>جایگزین</strong> می‌شود با آن سطح نقدینگی (<code>target_source = "m5_liquidity"</code>) — یعنی به‌جای یک عدد ثابت RR، هدف واقعی‌ترین سطح بعدی بازار می‌شود.</li>
+  </ol>
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    اگر سطح نقدینگی نزدیک‌تر از حداقل RR پیکربندی‌شده باشد (یعنی هدف را نزدیک‌تر و کم‌سودتر می‌کند)، به‌جایش استفاده نمی‌شود — هدف <code>m5_liquidity_min_rr</code> تضمین می‌کند هدف جایگزین هرگز از حداقل RR خواسته‌شده بدتر نباشد، فقط ممکن است واقعی‌تر باشد.
+  </div>
+
+  <h2 id="lab-tp">آزمایشگاه تعاملی: محاسبهٔ Take Profit</h2>
+  <div class="lab"><div id="lab-take-profit"></div></div>
+  <p class="small">بخش واقعی پروژه: <code class="small">pine_ob_bot/paper.py</code> → فرمول <code class="small">target = entry ± rr × risk</code> داخل <code class="small">PaperBroker.add_ob</code> (حالت <code>fixed_rr</code>).</p>
+
+  <h2 id="be">منطق Breakeven</h2>
+  <p>
+    Breakeven یک قابلیت اختیاری است (<code>cfg.breakeven_trigger_r</code>، پیش‌فرض <code>None</code>
+    یعنی غیرفعال). وقتی فعال باشد: به محض آنکه سود شناور یک پوزیشن (MFE — Maximum Favorable
+    Excursion) به اندازهٔ <code>trigger_r</code> برابر فاصلهٔ اصلی Stop برسد، Stop <strong>دقیقاً</strong>
+    به قیمت Entry منتقل می‌شود — نه بیشتر، نه کمتر — و این کار <strong>فقط یک‌بار</strong> در طول
+    عمر آن پوزیشن انجام می‌شود.
+  </p>
+
+  <h2 id="code-be">کد: _apply_breakeven</h2>
+  <div class="code-path">pine_ob_bot/paper.py — PaperBroker._apply_breakeven (خلاصه‌شده)</div>
+  <pre><code class="language-python">def _apply_breakeven(self, p: PaperPosition, when: str) -> None:
+    if self.cfg.breakeven_trigger_r is None or p.meta.get("breakeven_armed"):
+        return
+    distance = abs(p.entry - p.meta["original_stop"])   # فاصلهٔ اصلی، نه فاصلهٔ فعلی
+    trigger_distance = self.cfg.breakeven_trigger_r * distance
+
+    if p.max_favorable >= trigger_distance:
+        p.meta["breakeven_armed"] = True
+        p.meta["breakeven_armed_time"] = when
+        if p.direction == "bull" and p.entry > p.stop:
+            p.stop = p.entry
+        elif p.direction == "bear" and p.entry < p.stop:
+            p.stop = p.entry
+        self.stats["breakeven_armed"] += 1</code></pre>
+  <p>
+    خط به خط: خط اول یک «Guard Clause» دوگانه است — هم قابلیت باید فعال باشد، هم هنوز arm نشده
+    باشد. <code>distance</code> از <code>p.meta["original_stop"]</code> خوانده می‌شود، نه از
+    <code>p.stop</code> زنده — چون اگر Breakeven قبلاً یک‌بار Stop را جابه‌جا کرده بود،
+    <code>entry - p.stop</code> صفر می‌شد و محاسبه بی‌معنا می‌شد. شرط <code>entry &gt; stop</code>
+    (برای خرید) یک محافظ اضافه است تا مطمئن شود انتقال واقعاً Stop را <strong>بهتر</strong> می‌کند،
+    نه بدتر.
+  </p>
+  <div class="callout note">
+    <span class="callout-tag">نکته</span>
+    در <code>_close</code>، محاسبهٔ MAE/MFE-به-R همیشه نسبت به فاصلهٔ <strong>اصلی</strong> Stop
+    (قبل از هر جابه‌جایی Breakeven) انجام می‌شود، نه فاصلهٔ فعلی — دقیقاً به همان دلیل بالا (فاصلهٔ
+    صفر بعد از Breakeven بی‌معنا می‌شود). یک معاملهٔ برنده که بعداً به Breakeven برخورد کند،
+    <code>result="loss"</code> ثبت می‌شود اما با پرچم جداگانهٔ <code>breakeven_exit=True</code> —
+    یعنی در گزارش‌ها می‌توانید «باخت واقعی» را از «سربه‌سر شدن بعد از سود» تفکیک کنید.
+  </div>
+
+  <h2 id="lab-be">آزمایشگاه تعاملی: Breakeven</h2>
+  <div class="lab"><div id="lab-breakeven"></div></div>
+  <p class="small">بخش واقعی پروژه: <code class="small">pine_ob_bot/paper.py</code> → متد <code class="small">PaperBroker._apply_breakeven</code>.</p>
+
+  <h2 id="concepts">مفاهیم برنامه‌نویسی این فصل</h2>
+  <p>
+    <strong>حفظ مقدار مرجع اصلی برای محاسبات بعدی:</strong> ذخیرهٔ <code>original_stop</code> در
+    <code>meta</code> — به‌جای اتکا به مقدار زندهٔ در حال تغییر <code>p.stop</code> — یک الگوی مهم
+    است: هر وقت یک مقدار ممکن است در طول زمان جهش کند، اما محاسبه‌ای نیاز به «حالت اولیه» دارد،
+    آن حالت اولیه را جداگانه نگه دارید.
+  </p>
+  <p>
+    <strong>پرچم یک‌بارمصرف (One-shot flag):</strong> <code>breakeven_armed</code> الگوی رایج
+    «این کار فقط یک‌بار مجاز است» را با یک boolean سادهٔ داخل دیکشنری متادیتا پیاده می‌کند —
+    بدون نیاز به یک enum یا کلاس جدا.
+  </p>
+
+  <h2 id="mistakes">اشتباهات رایج</h2>
+  <ul>
+    <li>محاسبهٔ فاصلهٔ trigger از Stop <em>فعلی</em> به‌جای Stop <em>اصلی</em> — بعد از اولین Breakeven این فاصله صفر می‌شود.</li>
+    <li>انتظار داشتن Breakeven چندبار پشت‌سرهم اجرا شود — طراحی عمداً یک‌بارمصرف است.</li>
+    <li>فراموش کردن اینکه <code>target_mode="m5_liquidity_min_rr"</code> ممکن است اصلاً هدف را عوض نکند اگر سطح نقدینگی RR کمتری بدهد.</li>
+  </ul>
+
+  <h2 id="exercise">تمرین عملی</h2>
+  <div class="exercise">
+    <h4>تمرین (متوسط)</h4>
+    <p>در آزمایشگاه Breakeven، یک توالی قیمت بسازید که ابتدا MFE را به بالای آستانهٔ trigger برساند،
+    سپس قیمت برگردد و به Stop جدید (Entry) برخورد کند. نتیجهٔ نهایی معامله (result) و پرچم
+    <code>breakeven_exit</code> را با حالتی که Breakeven خاموش است مقایسه کنید.</p>
+    <details><summary>راهنما</summary><p class="hint">با Breakeven خاموش، همان توالی قیمت احتمالاً به Stop اصلی (نه Entry) برخورد می‌کند — نتیجهٔ زیان متفاوتی نسبت به یک سربه‌سر ساده.</p></details>
+  </div>
+
+  <h2 id="review">پرسش‌های مرور فصل</h2>
+  <ol class="review-q">
+    <li>چرا فاصلهٔ محاسبهٔ Breakeven از <code>original_stop</code> خوانده می‌شود، نه <code>p.stop</code>؟</li>
+    <li>در حالت <code>target_mode="m5_liquidity_min_rr"</code>، هدف چه زمانی جایگزین می‌شود و چه زمانی نه؟</li>
+    <li>تفاوت <code>result="loss"</code> ساده با <code>breakeven_exit=True</code> چیست؟</li>
+  </ol>
+
+  <h2 id="summary">خلاصهٔ فصل</h2>
+  <p>
+    Take Profit پیش‌فرض یک فرمول ثابت RR است که در لحظهٔ پر شدن می‌تواند با یک سطح نقدینگی
+    واقع‌بینانه‌تر جایگزین شود (اما هرگز بدتر). Breakeven یک انتقال یک‌بارمصرف و دقیق Stop به Entry
+    است، با محاسبات مبتنی بر فاصلهٔ اصلی برای جلوگیری از تناقض بعد از جابه‌جایی.
+  </p>
+
+  <div class="chapter-nav">
+    <a href="11_risk_sizing.html"><span class="dir">→ فصل قبل</span>Risk Sizing</a>
+    <a class="index-link" href="00_index.html">فهرست</a>
+    <a href="13_paper_broker_pending_orders.html"><span class="dir">فصل بعد ←</span>Paper Broker و Pending Order</a>
+  </div>
+
+</div>
+<script src="assets/js/journal.js"></script>
+<script src="assets/js/lab-client.js"></script>
+<script>
+  JournalLab.mount({
+    containerId: "lab-take-profit",
+    experimentId: "take_profit_calculator",
+    title: "محاسبهٔ Take Profit ثابت بر اساس RR",
+    goal: "با تغییر Entry، Stop، RR و جهت معامله، محاسبهٔ فاصلهٔ ریسک و قیمت هدف را ببینید.",
+    sourceRef: "فایل: pine_ob_bot/paper.py — فرمول target داخل PaperBroker.add_ob",
+    fields: [
+      { name: "side", label: "خرید یا فروش", type: "select", default: "buy",
+        options: [ { value: "buy", label: "خرید (Buy)" }, { value: "sell", label: "فروش (Sell)" } ] },
+      { name: "entry", label: "Entry", type: "float", default: 2000, min: 0, max: 1000000, step: 0.01 },
+      { name: "stop", label: "Stop", type: "float", default: 1990, min: 0, max: 1000000, step: 0.01 },
+      { name: "rr", label: "نسبت پاداش به ریسک (RR)", type: "float", default: 1.5, min: 0.1, max: 10, step: 0.1 }
+    ]
+  });
+
+  JournalLab.mount({
+    containerId: "lab-breakeven",
+    experimentId: "breakeven_simulator",
+    title: "شبیه‌سازی Breakeven روی یک توالی قیمت",
+    goal: "با تنظیم یک توالی قیمت و آستانهٔ R، ببینید MFE چه زمانی به آستانه می‌رسد، Stop جدید کجاست و نتیجهٔ نهایی معامله چگونه با حالت خاموش تفاوت دارد.",
+    sourceRef: "فایل: pine_ob_bot/paper.py — متد: PaperBroker._apply_breakeven",
+    fields: [
+      { name: "scenario", label: "سناریوی قیمت", type: "select", default: "run_then_reverse",
+        options: [
+          { value: "run_then_reverse", label: "رشد تا هدف، سپس بازگشت به Entry" },
+          { value: "straight_to_target", label: "رشد مستقیم تا Take Profit" },
+          { value: "straight_to_stop", label: "افت مستقیم تا Stop اصلی" }
+        ] },
+      { name: "entry", label: "Entry", type: "float", default: 2000, min: 0, max: 1000000, step: 0.01 },
+      { name: "stop", label: "Stop اولیه", type: "float", default: 1990, min: 0, max: 1000000, step: 0.01 },
+      { name: "target", label: "Target", type: "float", default: 2015, min: 0, max: 1000000, step: 0.01 },
+      { name: "breakeven_trigger_r", label: "آستانهٔ فعال‌سازی Breakeven (R)", type: "float", default: 1.0, min: 0.1, max: 5, step: 0.1,
+        help: "پارامتر: breakeven_trigger_r" },
+      { name: "breakeven_enabled", label: "Breakeven فعال باشد", type: "checkbox", default: true }
+    ]
+  });
+</script>
+</body>
+</html>

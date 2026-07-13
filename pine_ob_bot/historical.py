@@ -11,7 +11,7 @@ from .mtf_context import M15Context
 from .liquidity_context import LiquidityTracker
 from .paper import PaperBroker, SymbolSpec
 from .pine_engine import PineSwingOBEngine
-from .reporting import export_breakdown, export_html, export_reports
+from .reporting import export_breakdown, export_html, export_reports, experimental_summary
 from .storage import StateStore
 from .structure_context import ChochContext, DisplacementContext, displacement_snapshot
 from .trend_filter import trend_from_engine_state
@@ -120,6 +120,21 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                                                **choch.snapshot(direction, index)}
                                    for direction in ("bull", "bear")})
 
+    # Final flush: every earlier iteration drains the PREVIOUS iteration's
+    # rejected_sizing/trend_events at its own top, so events appended after
+    # that point on the very last candle (by this candle's own
+    # update_m5_trend/add_ob calls) would otherwise never reach the log --
+    # they still count correctly in broker.stats, only the per-event log rows
+    # were being silently dropped. Guarded for an empty CSV, where the loop
+    # (and therefore `candle`) never ran.
+    if len(frame):
+        for rejection in broker.rejected_sizing:
+            rejected_sizing_log.append({**rejection, "time": rejection.get("time", candle.time)})
+        broker.rejected_sizing.clear()
+        for event in broker.trend_events:
+            trend_events_log.append({**event, "time": event.get("time", candle.time)})
+        broker.trend_events.clear()
+
     root = cfg.db_path.parent
     raw_label = csv_path.stem + (f"_{run_label}" if run_label else "")
     label = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in raw_label)
@@ -180,7 +195,13 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                     "pending_orders_cancelled_trend_change": broker.stats.get("cancelled_trend_change", 0),
                     "filled_orders": len(filled_ids), "closed_trades": len(broker.trades),
                     "average_r": average_r, "max_drawdown": broker.max_drawdown,
-                    **broker.stats})
+                    **broker.stats, **experimental_summary(broker)})
+    age_samples = broker.stats.get("entry_pivot_age_samples", 0)
+    summary["avg_entry_pivot_age_bars"] = (
+        round(broker.stats.get("entry_pivot_age_sum_bars", 0) / age_samples, 2)
+        if age_samples else None)
+    summary["max_entry_pivot_age_seen"] = (
+        broker.stats.get("entry_pivot_age_max_bars", 0) if age_samples else None)
     export_html(broker, root / f"historical_{label}_report.html",
                 f"Pine Swing-OB Backtest — {csv_path.name}",
                 {"source": csv_path, "bars": len(frame), "spread": spread,
@@ -194,7 +215,12 @@ def run_historical(csv_path: Path, cfg: BotConfig, initial_equity: float = 10_00
                  "entry mode": cfg.entry_mode,
                  "sweep ATR buffer": cfg.sweep_reclaim_atr_buffer,
                  "lifecycle": "event-driven" if cfg.entry_lifecycle_enabled else "off",
-                 "max positions": cfg.max_open_positions})
+                 "max positions": cfg.max_open_positions,
+                 "sweep window bars": cfg.sweep_reclaim_max_bars,
+                 "controlled revival": cfg.controlled_revival,
+                 "ob re-entry": cfg.allow_ob_reentry,
+                 "spread wait": cfg.wait_for_spread_after_confirmation,
+                 "portfolio risk cap": cfg.portfolio_risk_cap})
     import csv
     with summary_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(summary)); writer.writeheader(); writer.writerow(summary)

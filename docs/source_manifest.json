@@ -1,5 +1,5 @@
 {
-  "acknowledged_at_utc": "2026-07-07T00:42:42+00:00",
+  "acknowledged_at_utc": "2026-07-10T18:17:21+00:00",
   "files": {
     "pine_ob_bot/__init__.py": {
       "guide_section": "public-api",
@@ -7,11 +7,15 @@
     },
     "pine_ob_bot/app.py": {
       "guide_section": "app-orchestration",
-      "sha256": "16b1f7da6b6e3592920bd611fc4003b5912a3809366b93f9dfb8024a88940c5f"
+      "sha256": "39035a341db0018572748fa91927d5c515c6d35e0eff06ae78ff3d9eab7a6b47"
+    },
+    "pine_ob_bot/cli_risk.py": {
+      "guide_section": "fixed-risk-cli",
+      "sha256": "e37611335e2cc66ca5b6ce8aafafb7ab7ea7dde3bb7d5aa61b9a5773a6726561"
     },
     "pine_ob_bot/config.py": {
       "guide_section": "configuration",
-      "sha256": "98c9b05a262e062c3e855a9972a23b4b70db20abc2fecf3d5aeb73352a66d24f"
+      "sha256": "eb2331eb52f1adb41efeef6cdf7c3b0cdb6c379be6994356ce3d1974a52fe940"
     },
     "pine_ob_bot/dashboard_server.py": {
       "guide_section": "dashboard",
@@ -19,7 +23,7 @@
     },
     "pine_ob_bot/demo_executor.py": {
       "guide_section": "demo-execution",
-      "sha256": "65c20c4aaf67aeb64a27731421039691aa30128b6d5c98673a640b0c7f284d5d"
+      "sha256": "2e1e3202e82ce5158fc808a98b28e40b095e97cb4dc64201937146e76c5e5cc5"
     },
     "pine_ob_bot/entry_pivot.py": {
       "guide_section": "entry-pivot",
@@ -27,7 +31,7 @@
     },
     "pine_ob_bot/historical.py": {
       "guide_section": "historical",
-      "sha256": "e4fe37e49cae03cc41f33334e0aefa1d3aff23743a66a250a1075c7015bca2c9"
+      "sha256": "863bb3f99d04debcebbcd336eebf27d0f49a881e006b59fac0cb2d9e34f53638"
     },
     "pine_ob_bot/liquidity_context.py": {
       "guide_section": "liquidity-context",
@@ -51,19 +55,19 @@
     },
     "pine_ob_bot/paper.py": {
       "guide_section": "paper-execution-risk",
-      "sha256": "8471b59a965ec68d93dd0cfa1ce2e9ca05374655ef3380d4aa4743658aeaf569"
+      "sha256": "d51f7f4f88a0ad8dc099d67586352d9f721dc0e5009b0e92d6570f3508eb8bb1"
     },
     "pine_ob_bot/pine_engine.py": {
       "guide_section": "pine-engine",
-      "sha256": "ebf35ff36404a91b090cd187d4a8cd2166aebc04d77a53b3ea3a0b75ade83aa4"
+      "sha256": "c34013f7deb8b852a90c52dc7941bc7fbb3724ee789df28ae14c2a4fc4f30961"
     },
     "pine_ob_bot/report_worker.py": {
       "guide_section": "report-worker",
-      "sha256": "9006417efd8dd5f0a176ce6d9bb6dbcf3193229dc900c7620a224e5a7f133f81"
+      "sha256": "841291f33781a4dd35e938c3ae530960aab682c09ca395d4acb60d9bf4bcf9e5"
     },
     "pine_ob_bot/reporting.py": {
       "guide_section": "reporting",
-      "sha256": "ea53aba5e49ce079de9fec8ea96f4df3d2c2b13aaaf8588997e97c5b107bc34f"
+      "sha256": "1fc296fd8176278838732a557e187d0306b5bb57ac7f021990c3d130a8a51ebb"
     },
     "pine_ob_bot/storage.py": {
       "guide_section": "persistence",
@@ -75,11 +79,11 @@
     },
     "pine_ob_bot/tick_historical.py": {
       "guide_section": "tick-historical",
-      "sha256": "90c2456ad5fabc5f95ab7995d2549c5e626fd400e145ee3923a92e34cdb257e9"
+      "sha256": "c95f5056f931587e8bde4be641b73747d120d7df979cadc753d6d3b6a348cd52"
     },
     "run_pine_ob_paper.py": {
       "guide_section": "runner-cli",
-      "sha256": "eef4b6968e94d7eba8f783e12199cb0b493a6a038a56cbfedc1a3f903de877d2"
+      "sha256": "f0f61618b6ab2c54ad04b022147eb4d205ff294cbd6f9a45f63a9c3351f91493"
     },
     "tools/fetch_mt5_ticks.py": {
       "guide_section": "tick-download",
@@ -87,7 +91,7 @@
     },
     "tools/run_tick_backtest.py": {
       "guide_section": "tick-backtest-cli",
-      "sha256": "88a3fa2925c13a224f1721f68a4bd76f7dcbf4fef10a1b4c95c803b826170423"
+      "sha256": "2f8cae1b861d7a528b8470fd15b406d781a15bb5a96d0a600b5fd713caeb9d86"
     },
     "tools/run_tick_risk_comparison.py": {
       "guide_section": "tick-risk-comparison",
